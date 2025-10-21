@@ -46,11 +46,6 @@
     "url": "https://github.com/guizmo-ai/zai-glm-cli/issues"
   },
   "homepage": "https://github.com/guizmo-ai/zai-glm-cli#readme",
-  "files": [
-    "dist/",
-    "README.md",
-    "LICENSE"
-  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
     "axios": "^1.7.0",
