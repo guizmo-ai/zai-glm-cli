@@ -1,19 +1,25 @@
 # ZAI CLI
 
+[![npm version](https://img.shields.io/npm/v/@guizmo-ai/zai-cli.svg)](https://www.npmjs.com/package/@guizmo-ai/zai-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/node/v/@guizmo-ai/zai-cli.svg)](https://nodejs.org)
+
 > A conversational AI CLI tool powered by Z.ai GLM models with intelligent text editing and tool usage.
 
 Forked from [superagent-ai/grok-cli](https://github.com/superagent-ai/grok-cli) and enhanced with advanced features for the Z.ai GLM ecosystem.
+
+![ZAI CLI Screenshot](./assets/screenshot.png)
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# From GitHub (recommended)
-npm install -g guizmo-ai/zai-glm-cli
+# Install from npm (recommended)
+npm install -g @guizmo-ai/zai-cli
 
 # Or with Bun
-bun add -g guizmo-ai/zai-glm-cli
+bun add -g @guizmo-ai/zai-cli
 ```
 
 ### First Run
@@ -28,8 +34,6 @@ The interactive wizard will guide you through:
 3. Start chatting!
 
 Configuration is saved to `~/.zai/user-settings.json`.
-
-![ZAI CLI Screenshot](./assets/screenshot.png)
 
 ## ✨ What's Different from grok-cli?
 
@@ -220,20 +224,24 @@ Visualize AI reasoning (GLM extended thinking):
 ## 🛠️ Development
 
 ```bash
+# Clone the repository
+git clone https://github.com/guizmo-ai/zai-glm-cli.git
+cd zai-glm-cli
+
 # Install dependencies
-bun install
+npm install
 
 # Development mode
-bun run dev
+npm run dev
 
 # Build
-bun run build
+npm run build
 
 # Run tests
-bun run test
+npm test
 
 # Type check
-bun run typecheck
+npm run typecheck
 ```
 
 ## 📋 Command Reference
@@ -260,7 +268,7 @@ Commands:
 
 1. Install ZAI CLI:
    ```bash
-   npm install -g guizmo-ai/zai-glm-cli
+   npm install -g @guizmo-ai/zai-cli
    ```
 
 2. Copy settings (optional):
@@ -288,6 +296,16 @@ Commands:
 - **Settings** - Two-tier config (user + project)
 - **MCP** - Protocol support for extensibility
 
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
 ## 🙏 Credits
 
 Based on [grok-cli](https://github.com/superagent-ai/grok-cli) by Superagent AI.
@@ -302,6 +320,10 @@ Enhanced for Z.ai GLM models with:
 
 MIT License - Copyright (c) 2025 Guizmo AI
 
+See [LICENSE](LICENSE) file for details.
+
 ---
 
-**Get started:** `npm install -g guizmo-ai/zai-glm-cli && zai`
+**Get started:** `npm install -g @guizmo-ai/zai-cli && zai`
+
+**Need help?** Open an issue on [GitHub](https://github.com/guizmo-ai/zai-glm-cli/issues)
