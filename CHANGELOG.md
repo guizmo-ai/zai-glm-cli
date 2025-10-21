@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-01-17
+
+### 🎉 Major Release - Sequential Streaming Architecture
+
+This is a **major architectural improvement** that completely resolves the "deconstructed" streaming issue where the model would stream responses while simultaneously using tools.
+
+#### Added
+
+- **StreamProcessor** - New component that processes entire API stream before yielding to UI
+  - Separates thinking, content, and tool calls into distinct phases
+  - Prevents concurrent streaming and tool execution
+  - Supports o1-style reasoning content display
+
+- **ChatStateMachine** - State management for chat flow control
+  - Enforces sequential state transitions (idle → thinking → planning_tools → executing_tools → responding → done)
+  - Guards prevent content streaming during tool execution
+  - Invalid transition detection and error recovery
+
+- **Architecture Documentation** - Added `ARCHITECTURE.md` with:
+  - Sequence diagrams showing new flow
+  - Before/after comparisons
+  - Component responsibilities
+  - Testing guidelines
+
+#### Changed
+
+- **ZaiAgent.processUserMessageStream** completely refactored for sequential processing:
+  - Now processes full stream before checking for tool calls
+  - Content only streams after all tool execution completes
+  - Word-by-word streaming for smooth final output
+  - Better token counting and metrics
+
+- **Streaming Flow** changed from concurrent to sequential:
+  ```
+  OLD: Stream content → Announce tools → Execute tools → Stream more
+  NEW: Process full stream → Execute all tools → Stream final content
+  ```
+
+#### Fixed
+
+- **Deconstructed Responses** - No more partial text streaming during tool planning
+- **Tool Execution Timing** - Tools execute completely before final response
+- **State Consistency** - State machine prevents invalid transitions
+- **User Experience** - Cleaner, more coherent response presentation
+
+#### Technical Details
+
+- Inspired by SST OpenCode architecture
+- All 302 tests passing
+- No breaking changes to API
+- Backward compatible with existing configurations
+
 ## [0.2.1] - 2025-01-17
 
 ### Fixed
