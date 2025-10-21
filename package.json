@@ -57,6 +57,7 @@
     "axios": "^1.7.0",
     "cfonts": "^3.3.0",
     "chalk": "^5.3.0",
+    "chokidar": "^4.0.3",
     "chalk-animation": "^2.0.3",
     "commander": "^12.0.0",
     "dotenv": "^16.4.0",
