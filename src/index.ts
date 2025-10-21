@@ -16,6 +16,17 @@ import { createMCPCommand } from "./commands/mcp.js";
 import { getMetricsCollector } from "./utils/metrics.js";
 import { getSessionManager } from "./utils/session-manager.js";
 import type { ChatCompletionMessageParam } from "openai/resources/chat";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+// Get package version
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(
+  readFileSync(path.join(__dirname, "../package.json"), "utf-8")
+);
+const VERSION = packageJson.version;
 
 // Load environment variables
 dotenv.config();
@@ -325,7 +336,7 @@ program
   .description(
     "A conversational AI CLI tool powered by Z.ai with text editor capabilities"
   )
-  .version("1.0.1")
+  .version(VERSION)
   .argument("[message...]", "Initial message to send to ZAI")
   .option("-d, --directory <dir>", "set working directory", process.cwd())
   .option("-k, --api-key <key>", "ZAI API key (or set ZAI_API_KEY env var)")

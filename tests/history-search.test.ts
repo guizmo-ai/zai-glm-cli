@@ -181,6 +181,9 @@ describe("History Search Integration Tests", () => {
     const historyManager = HistoryManager.getInstance();
     (historyManager as any).historyPath = testHistoryPath;
 
+    // Clear any history that was loaded from default location
+    (historyManager as any).history = [];
+
     const settingsManager = SettingsManager.getInstance();
     (settingsManager as any).userSettingsPath = testSettingsPath;
 
@@ -340,6 +343,9 @@ describe("History Search Integration Tests", () => {
 
       const historyManager = HistoryManager.getInstance({ enabled: false });
       (historyManager as any).historyPath = testHistoryPath;
+
+      // Clear any history that was loaded from default location
+      (historyManager as any).history = [];
 
       historyManager.addEntry("command1");
 

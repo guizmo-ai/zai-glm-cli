@@ -21,6 +21,9 @@ describe("HistoryManager", () => {
     const manager = HistoryManager.getInstance();
     originalHistoryPath = (manager as any).historyPath;
     (manager as any).historyPath = testHistoryPath;
+
+    // Clear any history that was loaded from default location
+    (manager as any).history = [];
   });
 
   afterEach(() => {

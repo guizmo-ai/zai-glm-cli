@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-01-17
+
+### Fixed
+
+- Fixed hardcoded version number in CLI - now correctly reads version from package.json
+- Fixed test isolation issues in HistoryManager tests - prevents contamination between test runs
+
 ## [0.2.0] - 2025-01-17
 
 This major feature release significantly enhances the developer experience with persistent command history, interactive diff viewing, and substantial internal improvements for better code quality and maintainability.
