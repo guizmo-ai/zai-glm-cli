@@ -4,9 +4,11 @@ import { writeFile as writeFilePromise } from "fs/promises";
 import { ConfirmationService } from "../utils/confirmation-service.js";
 import { FileNotFoundError, FilePermissionError, FileOperationError, FileAlreadyExistsError, InvalidLineNumberError } from "../errors/index.js";
 import { ErrorHandler } from "../utils/error-handler.js";
+import { BackupManager } from "../utils/backup-manager.js";
 export class TextEditorTool {
     editHistory = [];
     confirmationService = ConfirmationService.getInstance();
+    backupManager = BackupManager.getInstance();
     async view(filePath, viewRange) {
         try {
             const resolvedPath = path.resolve(filePath);
@@ -121,7 +123,8 @@ export class TextEditorTool {
             const newContent = replaceAll
                 ? content.split(oldStr).join(newStr)
                 : content.replace(oldStr, newStr);
-            await writeFilePromise(resolvedPath, newContent, "utf-8");
+            // Create backup and write
+            await this.createBackupAndWrite(resolvedPath, newContent);
             this.editHistory.push({
                 command: "str_replace",
                 path: filePath,
@@ -189,6 +192,7 @@ export class TextEditorTool {
             }
             const dir = path.dirname(resolvedPath);
             await fs.ensureDir(dir);
+            // For new files, no backup needed
             await writeFilePromise(resolvedPath, content, "utf-8");
             this.editHistory.push({
                 command: "create",
@@ -267,7 +271,8 @@ export class TextEditorTool {
             const replacementLines = newContent.split("\n");
             lines.splice(startLine - 1, endLine - startLine + 1, ...replacementLines);
             const newFileContent = lines.join("\n");
-            await writeFilePromise(resolvedPath, newFileContent, "utf-8");
+            // Create backup and write
+            await this.createBackupAndWrite(resolvedPath, newFileContent);
             this.editHistory.push({
                 command: "str_replace",
                 path: filePath,
@@ -310,7 +315,8 @@ export class TextEditorTool {
             const lines = fileContent.split("\n");
             lines.splice(insertLine - 1, 0, content);
             const newContent = lines.join("\n");
-            await writeFilePromise(resolvedPath, newContent, "utf-8");
+            // Create backup and write
+            await this.createBackupAndWrite(resolvedPath, newContent);
             this.editHistory.push({
                 command: "insert",
                 path: filePath,
@@ -576,6 +582,65 @@ export class TextEditorTool {
     }
     getEditHistory() {
         return [...this.editHistory];
+    }
+    async createBackupAndWrite(filePath, content) {
+        // Create backup before writing
+        await this.backupManager.createBackup(filePath);
+        // Write new content
+        await writeFilePromise(filePath, content, "utf-8");
+    }
+    async restoreFromBackup(filePath) {
+        try {
+            const resolvedPath = path.resolve(filePath);
+            const success = await this.backupManager.restoreBackup(resolvedPath);
+            if (success) {
+                return {
+                    success: true,
+                    output: `Successfully restored ${filePath} from backup`,
+                };
+            }
+            else {
+                return {
+                    success: false,
+                    error: `No backup found for ${filePath}`,
+                };
+            }
+        }
+        catch (error) {
+            return {
+                success: false,
+                error: `Failed to restore backup: ${error.message}`,
+            };
+        }
+    }
+    getBackupHistory(filePath) {
+        try {
+            const resolvedPath = path.resolve(filePath);
+            const history = this.backupManager.getBackupHistory(resolvedPath);
+            if (history.length === 0) {
+                return {
+                    success: true,
+                    output: `No backups found for ${filePath}`,
+                };
+            }
+            const output = [
+                `Backup history for ${filePath}:`,
+                ...history.map((backup, index) => {
+                    const date = new Date(backup.timestamp).toLocaleString();
+                    return `${index + 1}. ${date} (${backup.size} bytes)`;
+                }),
+            ].join("\n");
+            return {
+                success: true,
+                output,
+            };
+        }
+        catch (error) {
+            return {
+                success: false,
+                error: `Failed to get backup history: ${error.message}`,
+            };
+        }
     }
 }
 //# sourceMappingURL=text-editor.js.map

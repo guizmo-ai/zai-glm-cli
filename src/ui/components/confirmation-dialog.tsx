@@ -5,10 +5,13 @@ import { DiffRenderer } from "./diff-renderer.js";
 interface ConfirmationDialogProps {
   operation: string;
   filename: string;
-  onConfirm: (dontAskAgain?: boolean) => void;
+  onConfirm: (dontAskAgain?: boolean, editManually?: boolean) => void;
   onReject: (feedback?: string) => void;
   showVSCodeOpen?: boolean;
   content?: string; // Optional content to show (file content or command)
+  interactiveDiff?: boolean; // Enable interactive diff mode
+  oldContent?: string; // Original content for diff
+  newContent?: string; // New content for diff
 }
 
 export default function ConfirmationDialog({
@@ -18,17 +21,27 @@ export default function ConfirmationDialog({
   onReject,
   showVSCodeOpen = false,
   content,
+  interactiveDiff = false,
+  oldContent,
+  newContent,
 }: ConfirmationDialogProps) {
   const [selectedOption, setSelectedOption] = useState(0);
   const [feedbackMode, setFeedbackMode] = useState(false);
   const [feedback, setFeedback] = useState("");
 
-  const options = [
-    "Yes",
-    "Yes, and don't ask again this session",
-    "No",
-    "No, with feedback",
-  ];
+  const options = interactiveDiff
+    ? [
+        "Accept",
+        "Accept all (don't ask again)",
+        "Reject",
+        "Edit manually",
+      ]
+    : [
+        "Yes",
+        "Yes, and don't ask again this session",
+        "No",
+        "No, with feedback",
+      ];
 
   useInput((input, key) => {
     if (feedbackMode) {
@@ -58,13 +71,19 @@ export default function ConfirmationDialog({
 
     if (key.return) {
       if (selectedOption === 0) {
-        onConfirm(false);
+        onConfirm(false, false);
       } else if (selectedOption === 1) {
-        onConfirm(true);
+        onConfirm(true, false);
       } else if (selectedOption === 2) {
         onReject("Operation cancelled by user");
       } else {
-        setFeedbackMode(true);
+        if (interactiveDiff) {
+          // Edit manually option
+          onConfirm(false, true);
+        } else {
+          // Feedback mode for non-interactive
+          setFeedbackMode(true);
+        }
       }
       return;
     }

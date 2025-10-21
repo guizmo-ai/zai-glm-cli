@@ -270,7 +270,7 @@ export function useInputHandler({ agent, chatHistory, setChatHistory, setIsProce
         // Pour les autres outils, retourner le contenu normal
         return toolResult.output || "Success";
     };
-    const { input, cursorPosition, setInput, setCursorPosition, clearInput, resetHistory, handleInput, } = useEnhancedInput({
+    const { input, cursorPosition, setInput, setCursorPosition, clearInput, resetHistory, handleInput, isHistorySearchActive, historySearchQuery, historySearchResults, historySearchIndex, } = useEnhancedInput({
         onSubmit: handleInputSubmit,
         onSpecialKey: handleSpecialKey,
         disabled: isConfirmationActive,
@@ -396,6 +396,7 @@ File Watching:
 
 Enhanced Input Features:
   ↑/↓ Arrow   - Navigate command history
+  Ctrl+R      - Search command history (fuzzy search)
   Ctrl+C      - Clear input (press twice to exit)
   Ctrl+←/→    - Move by word
   Ctrl+A/E    - Move to line start/end
@@ -991,6 +992,10 @@ Respond with ONLY the commit message, no additional text.`;
         agent,
         autoEditEnabled,
         showThinking,
+        isHistorySearchActive,
+        historySearchQuery,
+        historySearchResults,
+        historySearchIndex,
     };
 }
 //# sourceMappingURL=use-input-handler.js.map

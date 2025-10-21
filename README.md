@@ -10,6 +10,24 @@ Forked from [superagent-ai/grok-cli](https://github.com/superagent-ai/grok-cli) 
 
 ![ZAI CLI Screenshot](./assets/screenshot.png)
 
+## ✨ New in v0.2.0
+
+Powerful new features to enhance your workflow:
+
+- **📜 Persistent Command History** - Your command history is saved across sessions in `~/.zai/history.json`, so you never lose your workflow
+- **🔍 Ctrl+R Fuzzy Search** - Instantly find and reuse previous commands with reverse search through your history
+- **👁️ Interactive Diff Viewer** - Preview all file changes before applying them, with options to accept, reject, or view full diffs
+- **💾 Automatic Backups** - Files are automatically backed up before editing to `~/.zai/backups/`, ensuring you can always recover previous versions
+
+### Keyboard Shortcuts
+
+- **↑/↓** - Navigate through command history
+- **Ctrl+R** - Reverse search through command history (fuzzy search)
+- **Diff Viewer:**
+  - `a` - Accept changes and apply to file
+  - `r` - Reject changes and discard
+  - `d` - Toggle between summary and full diff view
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -69,10 +87,11 @@ Natural language interface with Z.ai GLM models:
 
 ### 📝 Smart File Operations
 AI automatically:
-- Views, creates, and edits files
-- Executes shell commands
+- Views, creates, and edits files with **interactive diff preview**
+- Executes shell commands with **persistent history**
 - Selects appropriate tools
-- Handles multi-file operations
+- Handles multi-file operations with **automatic backups**
+- **Ctrl+R fuzzy search** through command history
 
 ### ⚙️ Settings Management
 
@@ -192,6 +211,35 @@ When enabled:
 - 98% accuracy on code changes
 
 ## 📊 Advanced Features
+
+### 📜 Command History & Search
+Your command history is automatically saved across sessions:
+```bash
+# History saved to ~/.zai/history.json
+# Use ↑/↓ to navigate through previous commands
+# Press Ctrl+R for fuzzy search through history
+```
+
+**Pro tip:** The history search supports fuzzy matching, so you can quickly find commands even if you don't remember the exact wording.
+
+### 👁️ Interactive Diff Viewer
+Preview all file changes before they're applied:
+```bash
+# When AI suggests file changes, you'll see:
+# - Side-by-side diff view
+# - Summary of changes
+# - Options to accept (a), reject (r), or view full diff (d)
+```
+
+This ensures you maintain full control over what changes are made to your codebase.
+
+### 💾 Automatic Backups
+Every file edit is automatically backed up:
+```bash
+# Backups stored in ~/.zai/backups/
+# Organized by timestamp
+# Easy recovery if something goes wrong
+```
 
 ### Session Persistence
 Save and restore conversations:

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import { useInputHandler } from "../../hooks/use-input-handler.js";
+import { useUIState } from "../../hooks/use-ui-state.js";
 import { LoadingSpinner } from "./loading-spinner.js";
 import { CommandSuggestions } from "./command-suggestions.js";
 import { ModelSelection } from "./model-selection.js";
@@ -9,6 +10,7 @@ import { ChatInput } from "./chat-input.js";
 import { MCPStatus } from "./mcp-status.js";
 import ThinkingPanel from "./thinking-panel.js";
 import ConfirmationDialog from "./confirmation-dialog.js";
+import { HistorySearch } from "./history-search.js";
 import { ConfirmationService, } from "../../utils/confirmation-service.js";
 import ApiKeyInput from "./api-key-input.js";
 import cfonts from "cfonts";
@@ -17,19 +19,10 @@ import FileWatcherIndicator from "./file-watcher-indicator.js";
 // Main chat component that handles input when agent is available
 function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMode = false, }) {
     const [chatHistory, setChatHistory] = useState(initialSession ? initialSession.chatHistory : []);
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [processingTime, setProcessingTime] = useState(0);
-    const [tokenCount, setTokenCount] = useState(0);
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [confirmationOptions, setConfirmationOptions] = useState(null);
-    const [thinkingContent, setThinkingContent] = useState("");
-    const [showThinking, setShowThinking] = useState(false);
+    // Centralized UI state management using useReducer
+    const { state: uiState, selectors, actions } = useUIState();
     const scrollRef = useRef();
     const processingStartTime = useRef(0);
-    // File watcher state
-    const [watcherActive, setWatcherActive] = useState(false);
-    const [watchPath, setWatchPath] = useState(null);
-    const [recentChanges, setRecentChanges] = useState(0);
     const confirmationService = ConfirmationService.getInstance();
     // Fonction pour résumer les résultats des outils
     const summarizeToolResult = (toolCall, toolResult) => {
@@ -158,20 +151,34 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
         // Pour les autres outils, retourner le contenu normal
         return toolResult.output || "Success";
     };
-    const { input, cursorPosition, showCommandSuggestions, selectedCommandIndex, showModelSelection, selectedModelIndex, commandSuggestions, availableModels, autoEditEnabled, showThinking: showThinkingFromHook, } = useInputHandler({
+    const { input, cursorPosition, showCommandSuggestions, selectedCommandIndex, showModelSelection, selectedModelIndex, commandSuggestions, availableModels, autoEditEnabled, showThinking: showThinkingFromHook, isHistorySearchActive, historySearchQuery, historySearchResults, historySearchIndex, } = useInputHandler({
         agent,
         chatHistory,
         setChatHistory,
-        setIsProcessing,
-        setIsStreaming,
-        setTokenCount,
-        setProcessingTime,
+        setIsProcessing: (processing) => {
+            if (processing) {
+                actions.startProcessing();
+            }
+            else {
+                actions.stopProcessing();
+            }
+        },
+        setIsStreaming: (streaming) => {
+            if (streaming) {
+                actions.startStreaming();
+            }
+            else {
+                actions.stopStreaming();
+            }
+        },
+        setTokenCount: actions.updateTokenCount,
+        setProcessingTime: actions.updateProcessingTime,
         processingStartTime,
-        isProcessing,
-        isStreaming,
-        isConfirmationActive: !!confirmationOptions,
-        setShowThinking,
-        setThinkingContent,
+        isProcessing: selectors.isProcessing,
+        isStreaming: selectors.isStreaming,
+        isConfirmationActive: selectors.isConfirming,
+        setShowThinking: actions.setShowThinking,
+        setThinkingContent: actions.updateThinkingContent,
     });
     useEffect(() => {
         // Only clear console on non-Windows platforms or if not PowerShell
@@ -239,10 +246,10 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
             };
             setChatHistory([userEntry]);
             const processInitialMessage = async () => {
-                setIsProcessing(true);
-                setIsStreaming(true);
+                actions.startProcessing();
+                actions.startStreaming();
                 // Clear thinking au début
-                setThinkingContent("");
+                actions.clearThinkingContent();
                 try {
                     let streamingEntry = null;
                     let accumulatedThinking = "";
@@ -253,7 +260,7 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                             case "thinking":
                                 if (chunk.content) {
                                     accumulatedThinking += chunk.content;
-                                    setThinkingContent(accumulatedThinking);
+                                    actions.updateThinkingContent(accumulatedThinking);
                                 }
                                 break;
                             case "content":
@@ -277,7 +284,7 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                                 break;
                             case "token_count":
                                 if (chunk.tokenCount !== undefined) {
-                                    setTokenCount(chunk.tokenCount);
+                                    actions.updateTokenCount(chunk.tokenCount);
                                 }
                                 break;
                             case "tool_calls":
@@ -294,7 +301,8 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                                     // Initialiser le compteur d'outils
                                     totalTools += chunk.toolCalls.length;
                                     // Ajouter ou mettre à jour le message synthétique au thinking panel
-                                    setThinkingContent(prev => {
+                                    actions.updateThinkingContent((() => {
+                                        const prev = uiState.thinkingContent;
                                         const lines = prev.split('\n');
                                         const toolLineIndex = lines.findIndex(line => line.includes('🔧 Executing tools:'));
                                         if (toolLineIndex !== -1) {
@@ -306,7 +314,7 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                                             // Créer la ligne si elle n'existe pas
                                             return `${prev}\n\n🔧 Executing tools: ${completedTools}/${totalTools} completed`;
                                         }
-                                    });
+                                    })());
                                     // Add individual tool call entries to show tools are being executed
                                     chunk.toolCalls.forEach((toolCall) => {
                                         const toolCallEntry = {
@@ -323,8 +331,9 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                                 if (chunk.toolCall && chunk.toolResult) {
                                     // Incrémenter le compteur et mettre à jour la ligne
                                     completedTools++;
-                                    setThinkingContent(prev => {
+                                    actions.updateThinkingContent((() => {
                                         // Remplacer la dernière ligne de compteur par la mise à jour
+                                        const prev = uiState.thinkingContent;
                                         const lines = prev.split('\n');
                                         const lastLineIndex = lines.findIndex(line => line.includes('🔧 Executing tools:'));
                                         if (lastLineIndex !== -1) {
@@ -332,7 +341,7 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                                             return lines.join('\n');
                                         }
                                         return prev;
-                                    });
+                                    })());
                                     setChatHistory((prev) => prev.map((entry) => {
                                         if (entry.isStreaming) {
                                             return { ...entry, isStreaming: false };
@@ -355,9 +364,9 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                                 if (streamingEntry) {
                                     setChatHistory((prev) => prev.map((entry) => entry.isStreaming ? { ...entry, isStreaming: false } : entry));
                                 }
-                                setIsStreaming(false);
+                                actions.stopStreaming();
                                 // Clear le thinking à la fin
-                                setThinkingContent("");
+                                actions.clearThinkingContent();
                                 break;
                         }
                     }
@@ -369,9 +378,9 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                         timestamp: new Date(),
                     };
                     setChatHistory((prev) => [...prev, errorEntry]);
-                    setIsStreaming(false);
+                    actions.stopStreaming();
                 }
-                setIsProcessing(false);
+                actions.stopProcessing();
                 processingStartTime.current = 0;
             };
             processInitialMessage();
@@ -384,8 +393,8 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
             const currentDir = agent.getCurrentDirectory();
             watcher.start(currentDir);
             watcher.on('ready', ({ watchPath }) => {
-                setWatcherActive(true);
-                setWatchPath(watchPath);
+                actions.setWatcherActive(true);
+                actions.setWatchPath(watchPath);
                 const readyEntry = {
                     type: 'assistant',
                     content: `File watching enabled for: ${watchPath}\nI'll notify you when files change.`,
@@ -394,10 +403,10 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                 setChatHistory(prev => [...prev, readyEntry]);
             });
             watcher.on('change', (event) => {
-                setRecentChanges(prev => prev + 1);
+                actions.incrementRecentChanges();
                 // Reset counter after 3 seconds
                 setTimeout(() => {
-                    setRecentChanges(prev => Math.max(0, prev - 1));
+                    actions.decrementRecentChanges();
                 }, 3000);
                 // Notify user of change
                 const changeEntry = {
@@ -412,48 +421,44 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
             });
             return () => {
                 watcher.stop();
-                setWatcherActive(false);
+                actions.setWatcherActive(false);
             };
         }
     }, [watchMode, agent]);
     useEffect(() => {
         const handleConfirmationRequest = (options) => {
-            setConfirmationOptions(options);
+            actions.showConfirmation(options);
         };
         confirmationService.on("confirmation-requested", handleConfirmationRequest);
         return () => {
             confirmationService.off("confirmation-requested", handleConfirmationRequest);
         };
-    }, [confirmationService]);
+    }, [confirmationService, actions]);
     useEffect(() => {
-        if (!isProcessing && !isStreaming) {
-            setProcessingTime(0);
+        if (!selectors.isProcessing && !selectors.isStreaming) {
+            actions.updateProcessingTime(0);
             return;
         }
         if (processingStartTime.current === 0) {
             processingStartTime.current = Date.now();
         }
         const interval = setInterval(() => {
-            setProcessingTime(Math.floor((Date.now() - processingStartTime.current) / 1000));
+            actions.updateProcessingTime(Math.floor((Date.now() - processingStartTime.current) / 1000));
         }, 1000);
         return () => clearInterval(interval);
-    }, [isProcessing, isStreaming]);
+    }, [selectors.isProcessing, selectors.isStreaming, actions]);
     const handleConfirmation = (dontAskAgain) => {
         confirmationService.confirmOperation(true, dontAskAgain);
-        setConfirmationOptions(null);
+        actions.confirm();
     };
     const handleRejection = (feedback) => {
         confirmationService.rejectOperation(feedback);
-        setConfirmationOptions(null);
+        actions.cancel();
         // Reset processing states when operation is cancelled
-        setIsProcessing(false);
-        setIsStreaming(false);
-        setTokenCount(0);
-        setProcessingTime(0);
         processingStartTime.current = 0;
     };
     return (React.createElement(Box, { flexDirection: "column", paddingX: 2 },
-        chatHistory.length === 0 && !confirmationOptions && (React.createElement(Box, { flexDirection: "column", marginBottom: 2 },
+        chatHistory.length === 0 && !selectors.isConfirming && (React.createElement(Box, { flexDirection: "column", marginBottom: 2 },
             React.createElement(Text, { color: "cyan", bold: true }, "Tips for getting started:"),
             React.createElement(Box, { marginTop: 1, flexDirection: "column" },
                 React.createElement(Text, { color: "gray" }, "1. Ask questions, edit files, or run commands."),
@@ -464,12 +469,12 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
         React.createElement(Box, { flexDirection: "column", marginBottom: 1 },
             React.createElement(Text, { color: "gray" }, "Type your request in natural language. Ctrl+C to clear, 'exit' to quit.")),
         React.createElement(Box, { flexDirection: "column", ref: scrollRef },
-            React.createElement(ChatHistory, { entries: chatHistory, isConfirmationActive: !!confirmationOptions })),
-        React.createElement(ThinkingPanel, { thinkingContent: thinkingContent, modelName: agent.getCurrentModel(), isVisible: showThinkingFromHook && !!thinkingContent, isStreaming: isStreaming }),
-        confirmationOptions && (React.createElement(ConfirmationDialog, { operation: confirmationOptions.operation, filename: confirmationOptions.filename, showVSCodeOpen: confirmationOptions.showVSCodeOpen, content: confirmationOptions.content, onConfirm: handleConfirmation, onReject: handleRejection })),
-        !confirmationOptions && (React.createElement(React.Fragment, null,
-            React.createElement(LoadingSpinner, { isActive: isProcessing || isStreaming, processingTime: processingTime, tokenCount: tokenCount }),
-            React.createElement(ChatInput, { input: input, cursorPosition: cursorPosition, isProcessing: isProcessing, isStreaming: isStreaming }),
+            React.createElement(ChatHistory, { entries: chatHistory, isConfirmationActive: selectors.isConfirming })),
+        React.createElement(ThinkingPanel, { thinkingContent: uiState.thinkingContent, modelName: agent.getCurrentModel(), isVisible: showThinkingFromHook && !!uiState.thinkingContent, isStreaming: selectors.isStreaming }),
+        selectors.confirmationOptions && (React.createElement(ConfirmationDialog, { operation: selectors.confirmationOptions.operation, filename: selectors.confirmationOptions.filename, showVSCodeOpen: selectors.confirmationOptions.showVSCodeOpen, content: selectors.confirmationOptions.content, onConfirm: handleConfirmation, onReject: handleRejection })),
+        !selectors.isConfirming && (React.createElement(React.Fragment, null,
+            React.createElement(LoadingSpinner, { isActive: selectors.isProcessing || selectors.isStreaming, processingTime: uiState.processingTime, tokenCount: uiState.tokenCount }),
+            React.createElement(ChatInput, { input: input, cursorPosition: cursorPosition, isProcessing: selectors.isProcessing, isStreaming: selectors.isStreaming }),
             React.createElement(Box, { flexDirection: "row", marginTop: 1 },
                 React.createElement(Box, { marginRight: 2 },
                     React.createElement(Text, { color: "cyan" },
@@ -494,10 +499,11 @@ function ChatInterfaceWithAgent({ agent, initialMessage, initialSession, watchMo
                         " ",
                         "(T)")),
                 React.createElement(Box, { marginRight: 2 },
-                    React.createElement(FileWatcherIndicator, { isActive: watcherActive, watchPath: watchPath, recentChanges: recentChanges })),
+                    React.createElement(FileWatcherIndicator, { isActive: uiState.watcherActive, watchPath: uiState.watchPath, recentChanges: uiState.recentChanges })),
                 React.createElement(MCPStatus, null)),
-            React.createElement(CommandSuggestions, { suggestions: commandSuggestions, input: input, selectedIndex: selectedCommandIndex, isVisible: showCommandSuggestions }),
-            React.createElement(ModelSelection, { models: availableModels, selectedIndex: selectedModelIndex, isVisible: showModelSelection, currentModel: agent.getCurrentModel() })))));
+            React.createElement(HistorySearch, { query: historySearchQuery, results: historySearchResults, selectedIndex: historySearchIndex, isVisible: isHistorySearchActive }),
+            React.createElement(CommandSuggestions, { suggestions: commandSuggestions, input: input, selectedIndex: selectedCommandIndex, isVisible: showCommandSuggestions && !isHistorySearchActive }),
+            React.createElement(ModelSelection, { models: availableModels, selectedIndex: selectedModelIndex, isVisible: showModelSelection && !isHistorySearchActive, currentModel: agent.getCurrentModel() })))));
 }
 // Main component that handles API key input or chat interface
 export default function ChatInterface({ agent, initialMessage, initialSession, watchMode = false, }) {

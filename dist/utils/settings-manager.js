@@ -21,6 +21,7 @@ const DEFAULT_USER_SETTINGS = {
         '**/.DS_Store',
     ],
     watchDebounceMs: 300,
+    enableHistory: true,
 };
 /**
  * Default values for project settings

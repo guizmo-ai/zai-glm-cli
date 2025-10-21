@@ -25,6 +25,10 @@ export interface EnhancedInputHook {
     insertAtCursor: (text: string) => void;
     resetHistory: () => void;
     handleInput: (inputChar: string, key: Key) => void;
+    isHistorySearchActive: boolean;
+    historySearchQuery: string;
+    historySearchResults: any[];
+    historySearchIndex: number;
 }
 interface UseEnhancedInputProps {
     onSubmit?: (text: string) => void;

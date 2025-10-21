@@ -14,6 +14,7 @@ export interface UserSettings {
   watchEnabled?: boolean; // Enable file watching by default
   watchIgnorePatterns?: string[]; // Patterns to ignore when watching
   watchDebounceMs?: number; // Debounce delay for file changes
+  enableHistory?: boolean; // Enable persistent command history (default: true)
 }
 
 /**
@@ -45,6 +46,7 @@ const DEFAULT_USER_SETTINGS: Partial<UserSettings> = {
     '**/.DS_Store',
   ],
   watchDebounceMs: 300,
+  enableHistory: true,
 };
 
 /**

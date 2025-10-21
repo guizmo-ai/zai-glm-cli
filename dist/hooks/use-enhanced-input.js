@@ -1,11 +1,15 @@
 import { useState, useCallback, useRef } from "react";
 import { deleteCharBefore, deleteCharAfter, deleteWordBefore, deleteWordAfter, insertText, moveToLineStart, moveToLineEnd, moveToPreviousWord, moveToNextWord, } from "../utils/text-utils.js";
 import { useInputHistory } from "./use-input-history.js";
+import { useHistorySearch } from "./use-history-search.js";
 export function useEnhancedInput({ onSubmit, onEscape, onSpecialKey, disabled = false, multiline = false, } = {}) {
     const [input, setInputState] = useState("");
     const [cursorPosition, setCursorPositionState] = useState(0);
     const isMultilineRef = useRef(multiline);
-    const { addToHistory, navigateHistory, resetHistory, setOriginalInput, isNavigatingHistory, } = useInputHistory();
+    const inputHistory = useInputHistory();
+    const { addToHistory, navigateHistory, resetHistory, setOriginalInput, isNavigatingHistory, } = inputHistory;
+    // Use the new history search hook
+    const historySearch = useHistorySearch(inputHistory);
     const setInput = useCallback((text) => {
         setInputState(text);
         setCursorPositionState(Math.min(text.length, cursorPosition));
@@ -42,7 +46,60 @@ export function useEnhancedInput({ onSubmit, onEscape, onSpecialKey, disabled = 
             setInputState("");
             setCursorPositionState(0);
             setOriginalInput("");
+            // Cancel history search if active
+            if (historySearch.isActive) {
+                historySearch.deactivate();
+            }
             return;
+        }
+        // Handle Ctrl+R - Reverse history search
+        if (key.ctrl && inputChar === "r") {
+            historySearch.handleCtrlR(input);
+            return;
+        }
+        // History search mode handling
+        if (historySearch.isActive) {
+            // Handle Escape - exit search mode
+            if (key.escape) {
+                const restoredInput = historySearch.handleEscape(input);
+                setInputState(restoredInput);
+                setCursorPositionState(restoredInput.length);
+                return;
+            }
+            // Handle Enter - select current result
+            if (key.return) {
+                const selected = historySearch.handleReturn();
+                if (selected) {
+                    setInputState(selected);
+                    setCursorPositionState(selected.length);
+                }
+                return;
+            }
+            // Handle arrow keys - navigate results
+            if (key.upArrow || key.name === 'up') {
+                historySearch.navigateResults('up');
+                return;
+            }
+            if (key.downArrow || key.name === 'down') {
+                historySearch.navigateResults('down');
+                return;
+            }
+            // Handle backspace in search mode
+            const isBackspace = key.backspace ||
+                key.name === 'backspace' ||
+                inputChar === '\b' ||
+                inputChar === '\x7f' ||
+                (key.delete && inputChar === '' && !key.shift);
+            if (isBackspace) {
+                historySearch.handleBackspace();
+                return;
+            }
+            // Handle regular character input in search mode
+            if (inputChar && !key.ctrl && !key.meta) {
+                historySearch.updateQuery(historySearch.query + inputChar);
+                return;
+            }
+            return; // Prevent other handlers in search mode
         }
         // Allow special key handler to override default behavior
         if (onSpecialKey?.(key)) {
@@ -198,7 +255,7 @@ export function useEnhancedInput({ onSubmit, onEscape, onSpecialKey, disabled = 
             setCursorPositionState(result.position);
             setOriginalInput(result.text);
         }
-    }, [disabled, onSpecialKey, input, cursorPosition, multiline, handleSubmit, navigateHistory, setOriginalInput]);
+    }, [disabled, onSpecialKey, input, cursorPosition, multiline, handleSubmit, navigateHistory, setOriginalInput, historySearch]);
     return {
         input,
         cursorPosition,
@@ -209,6 +266,10 @@ export function useEnhancedInput({ onSubmit, onEscape, onSpecialKey, disabled = 
         insertAtCursor,
         resetHistory,
         handleInput,
+        isHistorySearchActive: historySearch.isActive,
+        historySearchQuery: historySearch.query,
+        historySearchResults: historySearch.results,
+        historySearchIndex: historySearch.selectedIndex,
     };
 }
 //# sourceMappingURL=use-enhanced-input.js.map

@@ -35,6 +35,7 @@ export declare class BatchEditorTool {
     private textEditor;
     private search;
     private confirmationService;
+    private backupManager;
     private maxConcurrency;
     constructor();
     batchEdit(operation: BatchEditOperation): Promise<ToolResult>;

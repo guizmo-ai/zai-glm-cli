@@ -4,6 +4,7 @@ import { ToolResult } from "../types/index.js";
 import { TextEditorTool } from "./text-editor.js";
 import { SearchTool } from "./search.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
+import { BackupManager } from "../utils/backup-manager.js";
 
 export interface BatchEditOperation {
   type: "search-replace" | "insert" | "delete" | "rename-symbol";
@@ -48,6 +49,7 @@ export class BatchEditorTool {
   private textEditor: TextEditorTool;
   private search: SearchTool;
   private confirmationService = ConfirmationService.getInstance();
+  private backupManager = BackupManager.getInstance();
   private maxConcurrency: number = 5; // Process 5 files at a time
 
   constructor() {
@@ -284,6 +286,9 @@ export class BatchEditorTool {
           changes: 0,
         };
       }
+
+      // Create backup before writing
+      await this.backupManager.createBackup(file);
 
       // Write the changes
       await fs.writeFile(file, newContent, "utf-8");

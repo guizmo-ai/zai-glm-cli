@@ -12,6 +12,7 @@ export class ConfirmationService extends EventEmitter {
         fileOperations: false,
         bashCommands: false,
         allOperations: false,
+        interactiveDiff: true, // Enable interactive diff by default
     };
     static getInstance() {
         if (!ConfirmationService.instance) {
@@ -60,9 +61,9 @@ export class ConfirmationService extends EventEmitter {
         }
         return result;
     }
-    confirmOperation(confirmed, dontAskAgain) {
+    confirmOperation(confirmed, dontAskAgain, editManually) {
         if (this.resolveConfirmation) {
-            this.resolveConfirmation({ confirmed, dontAskAgain });
+            this.resolveConfirmation({ confirmed, dontAskAgain, editManually });
             this.resolveConfirmation = null;
             this.pendingConfirmation = null;
         }
@@ -98,6 +99,7 @@ export class ConfirmationService extends EventEmitter {
             fileOperations: false,
             bashCommands: false,
             allOperations: false,
+            interactiveDiff: true,
         };
     }
     getSessionFlags() {
@@ -105,6 +107,12 @@ export class ConfirmationService extends EventEmitter {
     }
     setSessionFlag(flagType, value) {
         this.sessionFlags[flagType] = value;
+    }
+    isInteractiveDiffEnabled() {
+        return this.sessionFlags.interactiveDiff;
+    }
+    setInteractiveDiff(enabled) {
+        this.sessionFlags.interactiveDiff = enabled;
     }
 }
 //# sourceMappingURL=confirmation-service.js.map

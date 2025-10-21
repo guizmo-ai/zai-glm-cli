@@ -4,11 +4,15 @@ export interface ConfirmationOptions {
     filename: string;
     showVSCodeOpen?: boolean;
     content?: string;
+    interactiveDiff?: boolean;
+    oldContent?: string;
+    newContent?: string;
 }
 export interface ConfirmationResult {
     confirmed: boolean;
     dontAskAgain?: boolean;
     feedback?: string;
+    editManually?: boolean;
 }
 export declare class ConfirmationService extends EventEmitter {
     private static instance;
@@ -19,7 +23,7 @@ export declare class ConfirmationService extends EventEmitter {
     static getInstance(): ConfirmationService;
     constructor();
     requestConfirmation(options: ConfirmationOptions, operationType?: "file" | "bash"): Promise<ConfirmationResult>;
-    confirmOperation(confirmed: boolean, dontAskAgain?: boolean): void;
+    confirmOperation(confirmed: boolean, dontAskAgain?: boolean, editManually?: boolean): void;
     rejectOperation(feedback?: string): void;
     private openInVSCode;
     isPending(): boolean;
@@ -28,6 +32,9 @@ export declare class ConfirmationService extends EventEmitter {
         fileOperations: boolean;
         bashCommands: boolean;
         allOperations: boolean;
+        interactiveDiff: boolean;
     };
-    setSessionFlag(flagType: "fileOperations" | "bashCommands" | "allOperations", value: boolean): void;
+    setSessionFlag(flagType: "fileOperations" | "bashCommands" | "allOperations" | "interactiveDiff", value: boolean): void;
+    isInteractiveDiffEnabled(): boolean;
+    setInteractiveDiff(enabled: boolean): void;
 }

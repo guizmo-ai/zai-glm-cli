@@ -10,6 +10,7 @@ export interface UserSettings {
     watchEnabled?: boolean;
     watchIgnorePatterns?: string[];
     watchDebounceMs?: number;
+    enableHistory?: boolean;
 }
 /**
  * Project-level settings stored in .zai/settings.json

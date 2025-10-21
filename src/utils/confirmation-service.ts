@@ -9,12 +9,16 @@ export interface ConfirmationOptions {
   filename: string;
   showVSCodeOpen?: boolean;
   content?: string; // Content to show in confirmation dialog
+  interactiveDiff?: boolean; // Enable interactive diff mode
+  oldContent?: string; // Original content for diff
+  newContent?: string; // New content for diff
 }
 
 export interface ConfirmationResult {
   confirmed: boolean;
   dontAskAgain?: boolean;
   feedback?: string;
+  editManually?: boolean; // User wants to edit manually
 }
 
 export class ConfirmationService extends EventEmitter {
@@ -29,6 +33,7 @@ export class ConfirmationService extends EventEmitter {
     fileOperations: false,
     bashCommands: false,
     allOperations: false,
+    interactiveDiff: true, // Enable interactive diff by default
   };
 
   static getInstance(): ConfirmationService {
@@ -90,9 +95,9 @@ export class ConfirmationService extends EventEmitter {
     return result;
   }
 
-  confirmOperation(confirmed: boolean, dontAskAgain?: boolean): void {
+  confirmOperation(confirmed: boolean, dontAskAgain?: boolean, editManually?: boolean): void {
     if (this.resolveConfirmation) {
-      this.resolveConfirmation({ confirmed, dontAskAgain });
+      this.resolveConfirmation({ confirmed, dontAskAgain, editManually });
       this.resolveConfirmation = null;
       this.pendingConfirmation = null;
     }
@@ -133,6 +138,7 @@ export class ConfirmationService extends EventEmitter {
       fileOperations: false,
       bashCommands: false,
       allOperations: false,
+      interactiveDiff: true,
     };
   }
 
@@ -141,9 +147,17 @@ export class ConfirmationService extends EventEmitter {
   }
 
   setSessionFlag(
-    flagType: "fileOperations" | "bashCommands" | "allOperations",
+    flagType: "fileOperations" | "bashCommands" | "allOperations" | "interactiveDiff",
     value: boolean
   ) {
     this.sessionFlags[flagType] = value;
+  }
+
+  isInteractiveDiffEnabled(): boolean {
+    return this.sessionFlags.interactiveDiff;
+  }
+
+  setInteractiveDiff(enabled: boolean): void {
+    this.sessionFlags.interactiveDiff = enabled;
   }
 }

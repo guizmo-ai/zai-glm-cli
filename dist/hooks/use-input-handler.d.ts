@@ -33,5 +33,9 @@ export declare function useInputHandler({ agent, chatHistory, setChatHistory, se
     agent: ZaiAgent;
     autoEditEnabled: boolean;
     showThinking: boolean;
+    isHistorySearchActive: boolean;
+    historySearchQuery: string;
+    historySearchResults: any[];
+    historySearchIndex: number;
 };
 export {};

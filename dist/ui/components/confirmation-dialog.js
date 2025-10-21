@@ -1,16 +1,23 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { DiffRenderer } from "./diff-renderer.js";
-export default function ConfirmationDialog({ operation, filename, onConfirm, onReject, showVSCodeOpen = false, content, }) {
+export default function ConfirmationDialog({ operation, filename, onConfirm, onReject, showVSCodeOpen = false, content, interactiveDiff = false, oldContent, newContent, }) {
     const [selectedOption, setSelectedOption] = useState(0);
     const [feedbackMode, setFeedbackMode] = useState(false);
     const [feedback, setFeedback] = useState("");
-    const options = [
-        "Yes",
-        "Yes, and don't ask again this session",
-        "No",
-        "No, with feedback",
-    ];
+    const options = interactiveDiff
+        ? [
+            "Accept",
+            "Accept all (don't ask again)",
+            "Reject",
+            "Edit manually",
+        ]
+        : [
+            "Yes",
+            "Yes, and don't ask again this session",
+            "No",
+            "No, with feedback",
+        ];
     useInput((input, key) => {
         if (feedbackMode) {
             if (key.return) {
@@ -36,16 +43,23 @@ export default function ConfirmationDialog({ operation, filename, onConfirm, onR
         }
         if (key.return) {
             if (selectedOption === 0) {
-                onConfirm(false);
+                onConfirm(false, false);
             }
             else if (selectedOption === 1) {
-                onConfirm(true);
+                onConfirm(true, false);
             }
             else if (selectedOption === 2) {
                 onReject("Operation cancelled by user");
             }
             else {
-                setFeedbackMode(true);
+                if (interactiveDiff) {
+                    // Edit manually option
+                    onConfirm(false, true);
+                }
+                else {
+                    // Feedback mode for non-interactive
+                    setFeedbackMode(true);
+                }
             }
             return;
         }

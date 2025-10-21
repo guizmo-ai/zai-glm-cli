@@ -3,10 +3,12 @@ import * as path from "path";
 import { TextEditorTool } from "./text-editor.js";
 import { SearchTool } from "./search.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
+import { BackupManager } from "../utils/backup-manager.js";
 export class BatchEditorTool {
     textEditor;
     search;
     confirmationService = ConfirmationService.getInstance();
+    backupManager = BackupManager.getInstance();
     maxConcurrency = 5; // Process 5 files at a time
     constructor() {
         this.textEditor = new TextEditorTool();
@@ -187,6 +189,8 @@ export class BatchEditorTool {
                     changes: 0,
                 };
             }
+            // Create backup before writing
+            await this.backupManager.createBackup(file);
             // Write the changes
             await fs.writeFile(file, newContent, "utf-8");
             return {
