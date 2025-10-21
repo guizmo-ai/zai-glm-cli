@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { ChatEntry } from "../../agent/grok-agent.js";
+import { ChatEntry } from "../../agent/zai-agent.js";
 import { DiffRenderer } from "./diff-renderer.js";
 import { MarkdownRenderer } from "../utils/markdown-renderer.js";
 

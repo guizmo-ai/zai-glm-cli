@@ -3,6 +3,14 @@ import * as path from "path";
 import { writeFile as writeFilePromise } from "fs/promises";
 import { ToolResult, EditorCommand } from "../types/index.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
+import {
+  FileNotFoundError,
+  FilePermissionError,
+  FileOperationError,
+  FileAlreadyExistsError,
+  InvalidLineNumberError
+} from "../errors/index.js";
+import { ErrorHandler } from "../utils/error-handler.js";
 
 export class TextEditorTool {
   private editHistory: EditorCommand[] = [];
@@ -55,12 +63,20 @@ export class TextEditorTool {
           output: `Contents of ${filePath}:\n${numberedLines}${additionalLinesMessage}`,
         };
       } else {
+        const notFoundError = new FileNotFoundError(filePath, 'view');
         return {
           success: false,
-          error: `File or directory not found: ${filePath}`,
+          error: ErrorHandler.toSimpleMessage(notFoundError),
         };
       }
     } catch (error: any) {
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        const permError = new FilePermissionError(filePath, 'read');
+        return {
+          success: false,
+          error: ErrorHandler.toSimpleMessage(permError),
+        };
+      }
       return {
         success: false,
         error: `Error viewing ${filePath}: ${error.message}`,
@@ -78,9 +94,10 @@ export class TextEditorTool {
       const resolvedPath = path.resolve(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
+        const notFoundError = new FileNotFoundError(filePath, 'edit');
         return {
           success: false,
-          error: `File not found: ${filePath}`,
+          error: ErrorHandler.toSimpleMessage(notFoundError),
         };
       }
 
@@ -156,9 +173,20 @@ export class TextEditorTool {
         output: diff,
       };
     } catch (error: any) {
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        const permError = new FilePermissionError(filePath, 'write');
+        return {
+          success: false,
+          error: ErrorHandler.toSimpleMessage(permError),
+        };
+      }
+      const opError = new FileOperationError(
+        `Failed to replace text: ${error.message}`,
+        { file: filePath, operation: 'str_replace' }
+      );
       return {
         success: false,
-        error: `Error replacing text in ${filePath}: ${error.message}`,
+        error: ErrorHandler.toSimpleMessage(opError),
       };
     }
   }
@@ -166,6 +194,15 @@ export class TextEditorTool {
   async create(filePath: string, content: string): Promise<ToolResult> {
     try {
       const resolvedPath = path.resolve(filePath);
+
+      // Check if file already exists
+      if (await fs.pathExists(resolvedPath)) {
+        const existsError = new FileAlreadyExistsError(filePath);
+        return {
+          success: false,
+          error: ErrorHandler.toSimpleMessage(existsError),
+        };
+      }
 
       // Check if user has already accepted file operations for this session
       const sessionFlags = this.confirmationService.getSessionFlags();
@@ -220,9 +257,20 @@ export class TextEditorTool {
         output: diff,
       };
     } catch (error: any) {
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        const permError = new FilePermissionError(filePath, 'create');
+        return {
+          success: false,
+          error: ErrorHandler.toSimpleMessage(permError),
+        };
+      }
+      const opError = new FileOperationError(
+        `Failed to create file: ${error.message}`,
+        { file: filePath, operation: 'create' }
+      );
       return {
         success: false,
-        error: `Error creating ${filePath}: ${error.message}`,
+        error: ErrorHandler.toSimpleMessage(opError),
       };
     }
   }
@@ -237,26 +285,29 @@ export class TextEditorTool {
       const resolvedPath = path.resolve(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
+        const notFoundError = new FileNotFoundError(filePath, 'edit lines');
         return {
           success: false,
-          error: `File not found: ${filePath}`,
+          error: ErrorHandler.toSimpleMessage(notFoundError),
         };
       }
 
       const fileContent = await fs.readFile(resolvedPath, "utf-8");
       const lines = fileContent.split("\n");
-      
+
       if (startLine < 1 || startLine > lines.length) {
+        const lineError = new InvalidLineNumberError(filePath, startLine, lines.length, 'replace');
         return {
           success: false,
-          error: `Invalid start line: ${startLine}. File has ${lines.length} lines.`,
+          error: ErrorHandler.toSimpleMessage(lineError),
         };
       }
-      
+
       if (endLine < startLine || endLine > lines.length) {
+        const lineError = new InvalidLineNumberError(filePath, endLine, lines.length, 'replace');
         return {
           success: false,
-          error: `Invalid end line: ${endLine}. Must be between ${startLine} and ${lines.length}.`,
+          error: ErrorHandler.toSimpleMessage(lineError),
         };
       }
 
@@ -308,9 +359,20 @@ export class TextEditorTool {
         output: diff,
       };
     } catch (error: any) {
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        const permError = new FilePermissionError(filePath, 'write');
+        return {
+          success: false,
+          error: ErrorHandler.toSimpleMessage(permError),
+        };
+      }
+      const opError = new FileOperationError(
+        `Failed to replace lines: ${error.message}`,
+        { file: filePath, operation: 'replace_lines' }
+      );
       return {
         success: false,
-        error: `Error replacing lines in ${filePath}: ${error.message}`,
+        error: ErrorHandler.toSimpleMessage(opError),
       };
     }
   }
@@ -324,9 +386,10 @@ export class TextEditorTool {
       const resolvedPath = path.resolve(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
+        const notFoundError = new FileNotFoundError(filePath, 'insert into');
         return {
           success: false,
-          error: `File not found: ${filePath}`,
+          error: ErrorHandler.toSimpleMessage(notFoundError),
         };
       }
 
@@ -350,9 +413,20 @@ export class TextEditorTool {
         output: `Successfully inserted content at line ${insertLine} in ${filePath}`,
       };
     } catch (error: any) {
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
+        const permError = new FilePermissionError(filePath, 'write');
+        return {
+          success: false,
+          error: ErrorHandler.toSimpleMessage(permError),
+        };
+      }
+      const opError = new FileOperationError(
+        `Failed to insert content: ${error.message}`,
+        { file: filePath, operation: 'insert' }
+      );
       return {
         success: false,
-        error: `Error inserting content in ${filePath}: ${error.message}`,
+        error: ErrorHandler.toSimpleMessage(opError),
       };
     }
   }

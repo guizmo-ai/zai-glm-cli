@@ -10,7 +10,7 @@ yarn.lock
 # bun.lock
 
 # Build outputs
-dist/
+# dist/ - Committed for GitHub installs (npm install guizmo-ai/zai-glm-cli)
 lib/
 build/
 *.tsbuildinfo
@@ -51,6 +51,9 @@ pids/
 # Coverage directory used by tools like istanbul
 coverage/
 .nyc_output/
+
+# Vitest
+.vitest/
 
 # TypeScript cache
 *.tsbuildinfo
@@ -100,3 +103,33 @@ temp/
 # Coding agents
 .claude/
 .grok/
+.zai/
+
+# Development documentation (keep only README.md)
+**/ANIMATED_LOGO_GUIDE.md
+**/BATCH_EDIT_*.md
+**/CHANGELOG_*.md
+**/COMPARISON_*.md
+**/ERROR_*.md
+**/FILE_WATCHING_*.md
+**/MIGRATION_*.md
+**/MULTI_MODEL_*.md
+**/ROADMAP_*.md
+**/SYNTHETIC_*.md
+**/THINKING_*.md
+**/VIEW_LOGS.md
+docs/
+
+# Test and debug files
+test-*.ts
+test-*.js
+test-*.sh
+test-*.md
+**/batch-edit-example.ts
+**/debug-*.sh
+vitest.config.ts
+
+# Miscellaneous development files
+lol.txt
+*.example.ts
+*.example.js

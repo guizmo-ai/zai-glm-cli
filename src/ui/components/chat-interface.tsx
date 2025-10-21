@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text } from "ink";
-import { GrokAgent, ChatEntry } from "../../agent/grok-agent.js";
+import { ZaiAgent, ChatEntry } from "../../agent/zai-agent.js";
 import { useInputHandler } from "../../hooks/use-input-handler.js";
 import { LoadingSpinner } from "./loading-spinner.js";
 import { CommandSuggestions } from "./command-suggestions.js";
@@ -8,6 +8,7 @@ import { ModelSelection } from "./model-selection.js";
 import { ChatHistory } from "./chat-history.js";
 import { ChatInput } from "./chat-input.js";
 import { MCPStatus } from "./mcp-status.js";
+import ThinkingPanel from "./thinking-panel.js";
 import ConfirmationDialog from "./confirmation-dialog.js";
 import {
   ConfirmationService,
@@ -15,31 +16,192 @@ import {
 } from "../../utils/confirmation-service.js";
 import ApiKeyInput from "./api-key-input.js";
 import cfonts from "cfonts";
+import { SessionData } from "../../utils/session-manager.js";
+import { getFileWatcher, FileChangeEvent } from "../../utils/file-watcher.js";
+import FileWatcherIndicator from "./file-watcher-indicator.js";
 
 interface ChatInterfaceProps {
-  agent?: GrokAgent;
+  agent?: ZaiAgent;
   initialMessage?: string;
+  initialSession?: SessionData;
+  watchMode?: boolean;
 }
 
 // Main chat component that handles input when agent is available
 function ChatInterfaceWithAgent({
   agent,
   initialMessage,
+  initialSession,
+  watchMode = false,
 }: {
-  agent: GrokAgent;
+  agent: ZaiAgent;
   initialMessage?: string;
+  initialSession?: SessionData;
+  watchMode?: boolean;
 }) {
-  const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
+  const [chatHistory, setChatHistory] = useState<ChatEntry[]>(
+    initialSession ? initialSession.chatHistory : []
+  );
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingTime, setProcessingTime] = useState(0);
   const [tokenCount, setTokenCount] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
   const [confirmationOptions, setConfirmationOptions] =
     useState<ConfirmationOptions | null>(null);
+  const [thinkingContent, setThinkingContent] = useState("");
+  const [showThinking, setShowThinking] = useState(false);
   const scrollRef = useRef<any>();
   const processingStartTime = useRef<number>(0);
 
+  // File watcher state
+  const [watcherActive, setWatcherActive] = useState(false);
+  const [watchPath, setWatchPath] = useState<string | null>(null);
+  const [recentChanges, setRecentChanges] = useState(0);
+
   const confirmationService = ConfirmationService.getInstance();
+
+  // Fonction pour résumer les résultats des outils
+  const summarizeToolResult = (toolCall: any, toolResult: any): string => {
+    const toolName = toolCall?.function?.name;
+
+    if (!toolResult.success) {
+      return toolResult.error || "Error occurred";
+    }
+
+    // view_file : masquer le contenu des fichiers
+    if (toolName === "view_file") {
+      const output = toolResult.output || "";
+      const lines = output.split("\n");
+      const lineCountMatch = output.match(/\+(\d+) lines/);
+      const totalLinesMatch = output.match(/Lines (\d+)-(\d+)/);
+
+      let fileInfo = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        fileInfo = args.path || "unknown file";
+      } catch {
+        fileInfo = "file";
+      }
+
+      if (lineCountMatch) {
+        const additionalLines = parseInt(lineCountMatch[1]);
+        return `✓ Read ${fileInfo} (${10 + additionalLines} lines)`;
+      } else if (totalLinesMatch) {
+        const start = parseInt(totalLinesMatch[1]);
+        const end = parseInt(totalLinesMatch[2]);
+        return `✓ Read ${fileInfo} (lines ${start}-${end})`;
+      } else {
+        const lineCount = lines.length - 1;
+        return `✓ Read ${fileInfo} (${lineCount} lines)`;
+      }
+    }
+
+    // bash : résumer les commandes longues
+    if (toolName === "bash") {
+      let command = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        command = args.command || "command";
+      } catch {
+        command = "command";
+      }
+
+      // Si la commande est longue, la tronquer
+      const maxLength = 60;
+      const displayCommand = command.length > maxLength
+        ? command.substring(0, maxLength) + "..."
+        : command;
+
+      // Si l'output est très long, le résumer
+      const output = toolResult.output || "";
+      if (output.length > 500) {
+        const lines = output.split("\n");
+        return `✓ ${displayCommand}\n${lines.slice(0, 5).join("\n")}\n... (${lines.length - 5} more lines)`;
+      }
+
+      return `✓ ${displayCommand}\n${output}`;
+    }
+
+    // search : résumer les résultats
+    if (toolName === "search") {
+      const output = toolResult.output || "";
+      const lines = output.split("\n");
+
+      // Compter les fichiers trouvés
+      const fileMatches = output.match(/Found in: (.+)/g);
+      const fileCount = fileMatches ? fileMatches.length : 0;
+
+      // Compter les matches totaux
+      const matchLines = lines.filter(line => line.trim() && !line.startsWith("Found in:"));
+
+      return `✓ Search complete: ${fileCount} files, ${matchLines.length} matches`;
+    }
+
+    // create_file : résumer la création
+    if (toolName === "create_file") {
+      let filename = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        filename = args.path || "file";
+      } catch {
+        filename = "file";
+      }
+
+      return `✓ Created ${filename}`;
+    }
+
+    // str_replace_editor : garder le diff mais indiquer les modifications
+    if (toolName === "str_replace_editor") {
+      const output = toolResult.output || "";
+      const additionsMatch = output.match(/(\d+) addition/);
+      const removalsMatch = output.match(/(\d+) removal/);
+
+      let filename = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        filename = args.path || "file";
+      } catch {
+        filename = "file";
+      }
+
+      const additions = additionsMatch ? parseInt(additionsMatch[1]) : 0;
+      const removals = removalsMatch ? parseInt(removalsMatch[1]) : 0;
+
+      return `✓ Edited ${filename} (+${additions}, -${removals})`;
+    }
+
+    // edit_file (morph editor) : résumer
+    if (toolName === "edit_file") {
+      let filename = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        filename = args.target_file || "file";
+      } catch {
+        filename = "file";
+      }
+
+      return `✓ Fast-edited ${filename} with Morph`;
+    }
+
+    // create_todo_list et update_todo_list : résumer
+    if (toolName === "create_todo_list") {
+      let todoCount = 0;
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        todoCount = args.todos?.length || 0;
+      } catch {
+        todoCount = 0;
+      }
+      return `✓ Created todo list with ${todoCount} items`;
+    }
+
+    if (toolName === "update_todo_list") {
+      return `✓ Updated todo list`;
+    }
+
+    // Pour les autres outils, retourner le contenu normal
+    return toolResult.output || "Success";
+  };
 
   const {
     input,
@@ -51,6 +213,7 @@ function ChatInterfaceWithAgent({
     commandSuggestions,
     availableModels,
     autoEditEnabled,
+    showThinking: showThinkingFromHook,
   } = useInputHandler({
     agent,
     chatHistory,
@@ -63,6 +226,8 @@ function ChatInterfaceWithAgent({
     isProcessing,
     isStreaming,
     isConfirmationActive: !!confirmationOptions,
+    setShowThinking,
+    setThinkingContent,
   });
 
   useEffect(() => {
@@ -80,8 +245,21 @@ function ChatInterfaceWithAgent({
     // Add top padding
     console.log("    ");
 
-    // Generate logo with margin to match Ink paddingX={2}
-    const logoOutput = cfonts.render("GROK", {
+    // Generate ZAI logo
+    const zaiOutput = cfonts.render("ZAI", {
+      font: "3d",
+      align: "left",
+      colors: ["magenta", "gray"],
+      space: true,
+      maxLength: "0",
+      gradient: ["magenta", "cyan"],
+      independentGradient: false,
+      transitionGradient: true,
+      env: "node",
+    });
+
+    // Generate GLM logo (same style as ZAI)
+    const glmOutput = cfonts.render("GLM", {
       font: "3d",
       align: "left",
       colors: ["magenta", "gray"],
@@ -94,18 +272,28 @@ function ChatInterfaceWithAgent({
     });
 
     // Add horizontal margin (2 spaces) to match Ink paddingX={2}
-    const logoLines = (logoOutput as any).string.split("\n");
-    logoLines.forEach((line: string) => {
+    // Print ZAI logo without trailing empty lines
+    const zaiLines = (zaiOutput as any).string.split("\n");
+    zaiLines.forEach((line: string) => {
       if (line.trim()) {
         console.log(" " + line); // Add 2 spaces for horizontal margin
-      } else {
-        console.log(line); // Keep empty lines as-is
+      }
+    });
+
+    // Print GLM logo immediately after (no gap)
+    const glmLines = (glmOutput as any).string.split("\n");
+    glmLines.forEach((line: string) => {
+      if (line.trim()) {
+        console.log(" " + line); // Add 2 spaces for horizontal margin
       }
     });
 
     console.log(" "); // Spacing after logo
 
-    setChatHistory([]);
+    // Don't clear chat history if we have an initial session
+    if (!initialSession) {
+      setChatHistory([]);
+    }
   }, []);
 
   // Process initial message if provided (streaming for faster feedback)
@@ -122,10 +310,23 @@ function ChatInterfaceWithAgent({
         setIsProcessing(true);
         setIsStreaming(true);
 
+        // Clear thinking au début
+        setThinkingContent("");
+
         try {
           let streamingEntry: ChatEntry | null = null;
+          let accumulatedThinking = "";
+          let totalTools = 0;
+          let completedTools = 0;
+
           for await (const chunk of agent.processUserMessageStream(initialMessage)) {
             switch (chunk.type) {
+              case "thinking":
+                if (chunk.content) {
+                  accumulatedThinking += chunk.content;
+                  setThinkingContent(accumulatedThinking);
+                }
+                break;
               case "content":
                 if (chunk.content) {
                   if (!streamingEntry) {
@@ -169,6 +370,24 @@ function ChatInterfaceWithAgent({
                   );
                   streamingEntry = null;
 
+                  // Initialiser le compteur d'outils
+                  totalTools += chunk.toolCalls.length;
+
+                  // Ajouter ou mettre à jour le message synthétique au thinking panel
+                  setThinkingContent(prev => {
+                    const lines = prev.split('\n');
+                    const toolLineIndex = lines.findIndex(line => line.includes('🔧 Executing tools:'));
+
+                    if (toolLineIndex !== -1) {
+                      // Mettre à jour la ligne existante
+                      lines[toolLineIndex] = `🔧 Executing tools: ${completedTools}/${totalTools} completed`;
+                      return lines.join('\n');
+                    } else {
+                      // Créer la ligne si elle n'existe pas
+                      return `${prev}\n\n🔧 Executing tools: ${completedTools}/${totalTools} completed`;
+                    }
+                  });
+
                   // Add individual tool call entries to show tools are being executed
                   chunk.toolCalls.forEach((toolCall) => {
                     const toolCallEntry: ChatEntry = {
@@ -183,6 +402,21 @@ function ChatInterfaceWithAgent({
                 break;
               case "tool_result":
                 if (chunk.toolCall && chunk.toolResult) {
+                  // Incrémenter le compteur et mettre à jour la ligne
+                  completedTools++;
+
+                  setThinkingContent(prev => {
+                    // Remplacer la dernière ligne de compteur par la mise à jour
+                    const lines = prev.split('\n');
+                    const lastLineIndex = lines.findIndex(line => line.includes('🔧 Executing tools:'));
+
+                    if (lastLineIndex !== -1) {
+                      lines[lastLineIndex] = `🔧 Executing tools: ${completedTools}/${totalTools} completed`;
+                      return lines.join('\n');
+                    }
+                    return prev;
+                  });
+
                   setChatHistory((prev) =>
                     prev.map((entry) => {
                       if (entry.isStreaming) {
@@ -195,9 +429,7 @@ function ChatInterfaceWithAgent({
                         return {
                           ...entry,
                           type: "tool_result",
-                          content: chunk.toolResult.success
-                            ? chunk.toolResult.output || "Success"
-                            : chunk.toolResult.error || "Error occurred",
+                          content: summarizeToolResult(chunk.toolCall, chunk.toolResult),
                           toolResult: chunk.toolResult,
                         };
                       }
@@ -216,6 +448,8 @@ function ChatInterfaceWithAgent({
                   );
                 }
                 setIsStreaming(false);
+                // Clear le thinking à la fin
+                setThinkingContent("");
                 break;
             }
           }
@@ -236,6 +470,54 @@ function ChatInterfaceWithAgent({
       processInitialMessage();
     }
   }, [initialMessage, agent]);
+
+  // File watcher effect
+  useEffect(() => {
+    if (watchMode) {
+      const watcher = getFileWatcher();
+      const currentDir = agent.getCurrentDirectory();
+
+      watcher.start(currentDir);
+
+      watcher.on('ready', ({ watchPath }) => {
+        setWatcherActive(true);
+        setWatchPath(watchPath);
+
+        const readyEntry: ChatEntry = {
+          type: 'assistant',
+          content: `File watching enabled for: ${watchPath}\nI'll notify you when files change.`,
+          timestamp: new Date(),
+        };
+        setChatHistory(prev => [...prev, readyEntry]);
+      });
+
+      watcher.on('change', (event: FileChangeEvent) => {
+        setRecentChanges(prev => prev + 1);
+
+        // Reset counter after 3 seconds
+        setTimeout(() => {
+          setRecentChanges(prev => Math.max(0, prev - 1));
+        }, 3000);
+
+        // Notify user of change
+        const changeEntry: ChatEntry = {
+          type: 'assistant',
+          content: `File ${event.type}: ${event.path}`,
+          timestamp: new Date(),
+        };
+        setChatHistory(prev => [...prev, changeEntry]);
+      });
+
+      watcher.on('error', (error) => {
+        console.error('File watcher error:', error);
+      });
+
+      return () => {
+        watcher.stop();
+        setWatcherActive(false);
+      };
+    }
+  }, [watchMode, agent]);
 
   useEffect(() => {
     const handleConfirmationRequest = (options: ConfirmationOptions) => {
@@ -302,7 +584,7 @@ function ChatInterfaceWithAgent({
             </Text>
             <Text color="gray">2. Be specific for the best results.</Text>
             <Text color="gray">
-              3. Create GROK.md files to customize your interactions with Grok.
+              3. Create ZAI.md files to customize your interactions with ZAI.
             </Text>
             <Text color="gray">
               4. Press Shift+Tab to toggle auto-edit mode.
@@ -325,6 +607,15 @@ function ChatInterfaceWithAgent({
           isConfirmationActive={!!confirmationOptions}
         />
       </Box>
+
+      {/* Show thinking panel if enabled and content available */}
+      <ThinkingPanel
+        thinkingContent={thinkingContent}
+        modelName={agent.getCurrentModel()}
+        isVisible={showThinkingFromHook && !!thinkingContent}
+        isStreaming={isStreaming}
+      />
+      {/* DEBUG: {JSON.stringify({ showThinkingFromHook, hasContent: !!thinkingContent, contentLength: thinkingContent.length })} */}
 
       {/* Show confirmation dialog if one is pending */}
       {confirmationOptions && (
@@ -367,6 +658,23 @@ function ChatInterfaceWithAgent({
             <Box marginRight={2}>
               <Text color="yellow">≋ {agent.getCurrentModel()}</Text>
             </Box>
+            <Box marginRight={2}>
+              <Text color={showThinkingFromHook ? "magenta" : "gray"}>
+                {showThinkingFromHook ? "💭" : "💤"} thinking:{" "}
+                {showThinkingFromHook ? "on" : "off"}
+              </Text>
+              <Text color="gray" dimColor>
+                {" "}
+                (T)
+              </Text>
+            </Box>
+            <Box marginRight={2}>
+              <FileWatcherIndicator
+                isActive={watcherActive}
+                watchPath={watchPath}
+                recentChanges={recentChanges}
+              />
+            </Box>
             <MCPStatus />
           </Box>
 
@@ -393,12 +701,14 @@ function ChatInterfaceWithAgent({
 export default function ChatInterface({
   agent,
   initialMessage,
+  initialSession,
+  watchMode = false,
 }: ChatInterfaceProps) {
-  const [currentAgent, setCurrentAgent] = useState<GrokAgent | null>(
+  const [currentAgent, setCurrentAgent] = useState<ZaiAgent | null>(
     agent || null
   );
 
-  const handleApiKeySet = (newAgent: GrokAgent) => {
+  const handleApiKeySet = (newAgent: ZaiAgent) => {
     setCurrentAgent(newAgent);
   };
 
@@ -410,6 +720,8 @@ export default function ChatInterface({
     <ChatInterfaceWithAgent
       agent={currentAgent}
       initialMessage={initialMessage}
+      initialSession={initialSession}
+      watchMode={watchMode}
     />
   );
 }

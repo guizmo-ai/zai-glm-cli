@@ -1,14 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
 import { useInput } from "ink";
-import { GrokAgent, ChatEntry } from "../agent/grok-agent.js";
+import { ZaiAgent, ChatEntry } from "../agent/zai-agent.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
 import { useEnhancedInput, Key } from "./use-enhanced-input.js";
 
 import { filterCommandSuggestions } from "../ui/components/command-suggestions.js";
 import { loadModelConfig, updateCurrentModel } from "../utils/model-config.js";
+import { getSessionManager } from "../utils/session-manager.js";
+import { getFileWatcher } from "../utils/file-watcher.js";
 
 interface UseInputHandlerProps {
-  agent: GrokAgent;
+  agent: ZaiAgent;
   chatHistory: ChatEntry[];
   setChatHistory: React.Dispatch<React.SetStateAction<ChatEntry[]>>;
   setIsProcessing: (processing: boolean) => void;
@@ -19,6 +21,8 @@ interface UseInputHandlerProps {
   isProcessing: boolean;
   isStreaming: boolean;
   isConfirmationActive?: boolean;
+  setShowThinking?: React.Dispatch<React.SetStateAction<boolean>>;
+  setThinkingContent?: React.Dispatch<React.SetStateAction<string>>;
 }
 
 interface CommandSuggestion {
@@ -42,11 +46,18 @@ export function useInputHandler({
   isProcessing,
   isStreaming,
   isConfirmationActive = false,
+  setShowThinking,
+  setThinkingContent,
 }: UseInputHandlerProps) {
   const [showCommandSuggestions, setShowCommandSuggestions] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [showModelSelection, setShowModelSelection] = useState(false);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+  const [showThinking, setShowThinkingState] = useState(() => {
+    // Initialiser avec l'état actuel du client
+    const thinkingEnabled = agent.getClient().getThinkingEnabled();
+    return thinkingEnabled;
+  });
   const [autoEditEnabled, setAutoEditEnabled] = useState(() => {
     const confirmationService = ConfirmationService.getInstance();
     const sessionFlags = confirmationService.getSessionFlags();
@@ -195,6 +206,149 @@ export function useInputHandler({
     }
   };
 
+  // Fonction pour résumer les résultats des outils
+  const summarizeToolResult = (toolCall: any, toolResult: any): string => {
+    const toolName = toolCall?.function?.name;
+
+    if (!toolResult.success) {
+      return toolResult.error || "Error occurred";
+    }
+
+    // view_file : masquer le contenu des fichiers
+    if (toolName === "view_file") {
+      const output = toolResult.output || "";
+      const lines = output.split("\n");
+      const lineCountMatch = output.match(/\+(\d+) lines/);
+      const totalLinesMatch = output.match(/Lines (\d+)-(\d+)/);
+
+      let fileInfo = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        fileInfo = args.path || "unknown file";
+      } catch {
+        fileInfo = "file";
+      }
+
+      if (lineCountMatch) {
+        const additionalLines = parseInt(lineCountMatch[1]);
+        return `✓ Read ${fileInfo} (${10 + additionalLines} lines)`;
+      } else if (totalLinesMatch) {
+        const start = parseInt(totalLinesMatch[1]);
+        const end = parseInt(totalLinesMatch[2]);
+        return `✓ Read ${fileInfo} (lines ${start}-${end})`;
+      } else {
+        const lineCount = lines.length - 1;
+        return `✓ Read ${fileInfo} (${lineCount} lines)`;
+      }
+    }
+
+    // bash : résumer les commandes longues
+    if (toolName === "bash") {
+      let command = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        command = args.command || "command";
+      } catch {
+        command = "command";
+      }
+
+      // Si la commande est longue, la tronquer
+      const maxLength = 60;
+      const displayCommand = command.length > maxLength
+        ? command.substring(0, maxLength) + "..."
+        : command;
+
+      // Si l'output est très long, le résumer
+      const output = toolResult.output || "";
+      if (output.length > 500) {
+        const lines = output.split("\n");
+        return `✓ ${displayCommand}\n${lines.slice(0, 5).join("\n")}\n... (${lines.length - 5} more lines)`;
+      }
+
+      return `✓ ${displayCommand}\n${output}`;
+    }
+
+    // search : résumer les résultats
+    if (toolName === "search") {
+      const output = toolResult.output || "";
+      const lines = output.split("\n");
+
+      // Compter les fichiers trouvés
+      const fileMatches = output.match(/Found in: (.+)/g);
+      const fileCount = fileMatches ? fileMatches.length : 0;
+
+      // Compter les matches totaux
+      const matchLines = lines.filter(line => line.trim() && !line.startsWith("Found in:"));
+
+      return `✓ Search complete: ${fileCount} files, ${matchLines.length} matches`;
+    }
+
+    // create_file : résumer la création
+    if (toolName === "create_file") {
+      let filename = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        filename = args.path || "file";
+      } catch {
+        filename = "file";
+      }
+
+      return `✓ Created ${filename}`;
+    }
+
+    // str_replace_editor : garder le diff mais indiquer les modifications
+    if (toolName === "str_replace_editor") {
+      const output = toolResult.output || "";
+      const additionsMatch = output.match(/(\d+) addition/);
+      const removalsMatch = output.match(/(\d+) removal/);
+
+      let filename = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        filename = args.path || "file";
+      } catch {
+        filename = "file";
+      }
+
+      const additions = additionsMatch ? parseInt(additionsMatch[1]) : 0;
+      const removals = removalsMatch ? parseInt(removalsMatch[1]) : 0;
+
+      return `✓ Edited ${filename} (+${additions}, -${removals})`;
+    }
+
+    // edit_file (morph editor) : résumer
+    if (toolName === "edit_file") {
+      let filename = "";
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        filename = args.target_file || "file";
+      } catch {
+        filename = "file";
+      }
+
+      return `✓ Fast-edited ${filename} with Morph`;
+    }
+
+    // create_todo_list et update_todo_list : résumer
+    if (toolName === "create_todo_list") {
+      let todoCount = 0;
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        todoCount = args.todos?.length || 0;
+      } catch {
+        todoCount = 0;
+      }
+      return `✓ Created todo list with ${todoCount} items`;
+    }
+
+    if (toolName === "update_todo_list") {
+      return `✓ Updated todo list`;
+    }
+
+    // Pour les autres outils, retourner le contenu normal
+    return toolResult.output || "Success";
+  };
+
   const {
     input,
     cursorPosition,
@@ -211,6 +365,63 @@ export function useInputHandler({
 
   // Hook up the actual input handling
   useInput((inputChar: string, key: Key) => {
+    // Handle Ctrl+S to quick save session
+    if (inputChar === '\u0013') { // Ctrl+S
+      const sessionName = `autosave-${new Date().toISOString()}`;
+      const sessionManager = getSessionManager();
+      sessionManager.saveSession(
+        sessionName,
+        chatHistory,
+        {
+          workingDirectory: agent.getCurrentDirectory(),
+          model: agent.getCurrentModel(),
+        },
+        'Auto-saved session'
+      );
+
+      const saveEntry: ChatEntry = {
+        type: "assistant",
+        content: `💾 Session auto-saved as: ${sessionName}`,
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, saveEntry]);
+
+      return;
+    }
+
+    // Handle 'T' or 't' key to toggle thinking panel when input is empty
+    if (
+      (inputChar === 't' || inputChar === 'T') &&
+      input === '' &&
+      !showCommandSuggestions &&
+      !showModelSelection &&
+      !isConfirmationActive &&
+      !isProcessing &&
+      !isStreaming
+    ) {
+      const currentThinking = agent.getClient().getThinkingEnabled();
+      const newShowThinking = !currentThinking;
+      setShowThinkingState(newShowThinking);
+
+      // Enable/disable thinking in the agent
+      agent.getClient().setThinkingEnabled(newShowThinking);
+
+      // Notify parent component if callback provided
+      if (setShowThinking) {
+        setShowThinking(newShowThinking);
+      }
+
+      // Add status message to chat with clearer feedback
+      const statusEntry: ChatEntry = {
+        type: "assistant",
+        content: `${newShowThinking ? '💭' : '💤'} Thinking mode ${newShowThinking ? 'enabled' : 'disabled'}${newShowThinking ? '. The model will now show its reasoning process.' : '. Reasoning will be hidden.'}`,
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, statusEntry]);
+
+      return; // Don't process this as regular input
+    }
+
     handleInput(inputChar, key);
   });
 
@@ -222,8 +433,14 @@ export function useInputHandler({
   const commandSuggestions: CommandSuggestion[] = [
     { command: "/help", description: "Show help information" },
     { command: "/clear", description: "Clear chat history" },
-    { command: "/models", description: "Switch Grok Model" },
+    { command: "/save", description: "Save current session" },
+    { command: "/load", description: "Load a saved session" },
+    { command: "/sessions", description: "List all sessions" },
+    { command: "/models", description: "Switch ZAI Model" },
+    { command: "/settings", description: "Open settings panel" },
+    { command: "/config", description: "Open settings panel" },
     { command: "/commit-and-push", description: "AI commit & push to remote" },
+    { command: "/watch", description: "Toggle file watching on/off" },
     { command: "/exit", description: "Exit the application" },
   ];
 
@@ -258,17 +475,36 @@ export function useInputHandler({
     if (trimmedInput === "/help") {
       const helpEntry: ChatEntry = {
         type: "assistant",
-        content: `Grok CLI Help:
+        content: `ZAI CLI Help:
 
 Built-in Commands:
   /clear      - Clear chat history
   /help       - Show this help
+  /save       - Save current session
+  /load       - Load a saved session
+  /sessions   - List all saved sessions
   /models     - Switch between available models
+  /settings   - Open settings panel (API key, base URL, model)
+  /config     - Alias for /settings
+  /watch      - Toggle file watching on/off
   /exit       - Exit application
   exit, quit  - Exit application
 
+Session Management:
+  /save <name> [description]  - Save current session
+  /load <name>                - Load a saved session
+  /sessions                   - List all sessions
+  Ctrl+S                      - Quick save session
+
 Git Commands:
   /commit-and-push - AI-generated commit + push to remote
+
+File Watching:
+  --watch, -w    - Start ZAI with file watching enabled
+  /watch         - Toggle file watching on/off
+
+  When enabled, ZAI will notify you when files change in the working directory.
+  Useful for keeping context in sync with external editor changes.
 
 Enhanced Input Features:
   ↑/↓ Arrow   - Navigate command history
@@ -279,6 +515,7 @@ Enhanced Input Features:
   Ctrl+K      - Delete to end of line
   Ctrl+U      - Delete to start of line
   Shift+Tab   - Toggle auto-edit mode (bypass confirmations)
+  T           - Toggle thinking mode (show model reasoning)
 
 Direct Commands (executed immediately):
   ls [path]   - List directory contents
@@ -289,7 +526,13 @@ Direct Commands (executed immediately):
   touch <file>- Create empty file
 
 Model Configuration:
-  Edit ~/.grok/models.json to add custom models (Claude, GPT, Gemini, etc.)
+  Edit ~/.zai/models.json to add custom models (Claude, GPT, Gemini, etc.)
+
+CLI Commands:
+  zai sessions                - List all saved sessions
+  zai load-session <name>     - Load and start session
+  zai delete-session <name>   - Delete a session
+  zai export-session <name>   - Export session to markdown
 
 For complex operations, just describe what you want in natural language.
 Examples:
@@ -305,6 +548,31 @@ Examples:
 
     if (trimmedInput === "/exit") {
       process.exit(0);
+      return true;
+    }
+
+    if (trimmedInput === "/settings" || trimmedInput === "/config") {
+      const settingsEntry: ChatEntry = {
+        type: "assistant",
+        content: `⚙️  Settings Panel
+
+To access the full settings panel, run this command in a new terminal:
+  $ zai config
+
+Available settings:
+  • API Key - Your Z.ai API key
+  • Base URL - API endpoint (default: https://api.z.ai/api/paas/v4)
+  • Default Model - Choose between glm-4.6, glm-4.5, glm-4.5-air
+
+Quick commands from here:
+  • /models - Switch model in current session
+  • Use 'zai config --show' to view current configuration
+  • Use 'zai config --set-key <key>' to update API key
+  • Use 'zai config --set-url <url>' to update base URL`,
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, settingsEntry]);
+      clearInput();
       return true;
     }
 
@@ -343,6 +611,131 @@ Available models: ${modelNames.join(", ")}`,
       return true;
     }
 
+    // Handle /watch command
+    if (trimmedInput === "/watch") {
+      const watcher = getFileWatcher();
+
+      if (watcher.isActive()) {
+        watcher.stop();
+        const entry: ChatEntry = {
+          type: "assistant",
+          content: "File watching stopped",
+          timestamp: new Date(),
+        };
+        setChatHistory((prev) => [...prev, entry]);
+      } else {
+        watcher.start(agent.getCurrentDirectory());
+        const entry: ChatEntry = {
+          type: "assistant",
+          content: `File watching started for: ${agent.getCurrentDirectory()}`,
+          timestamp: new Date(),
+        };
+        setChatHistory((prev) => [...prev, entry]);
+      }
+
+      clearInput();
+      return true;
+    }
+
+    // Handle /save command
+    if (trimmedInput.startsWith("/save")) {
+      const parts = trimmedInput.split(" ");
+      const sessionName = parts[1] || `session-${new Date().toISOString().split('T')[0]}`;
+      const description = parts.slice(2).join(" ") || undefined;
+
+      const sessionManager = getSessionManager();
+      sessionManager.saveSession(
+        sessionName,
+        chatHistory,
+        {
+          workingDirectory: agent.getCurrentDirectory(),
+          model: agent.getCurrentModel(),
+        },
+        description
+      );
+
+      const saveEntry: ChatEntry = {
+        type: "assistant",
+        content: `✅ Session saved as: ${sessionName}`,
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, saveEntry]);
+      clearInput();
+      return true;
+    }
+
+    // Handle /load command
+    if (trimmedInput.startsWith("/load")) {
+      const sessionName = trimmedInput.split(" ")[1];
+      if (!sessionName) {
+        const errorEntry: ChatEntry = {
+          type: "assistant",
+          content: "Usage: /load <session-name>",
+          timestamp: new Date(),
+        };
+        setChatHistory((prev) => [...prev, errorEntry]);
+        clearInput();
+        return true;
+      }
+
+      const sessionManager = getSessionManager();
+      const sessionData = sessionManager.loadSession(sessionName);
+
+      if (!sessionData) {
+        const errorEntry: ChatEntry = {
+          type: "assistant",
+          content: `❌ Session not found: ${sessionName}`,
+          timestamp: new Date(),
+        };
+        setChatHistory((prev) => [...prev, errorEntry]);
+        clearInput();
+        return true;
+      }
+
+      // Load the session
+      setChatHistory(sessionData.chatHistory);
+
+      const successEntry: ChatEntry = {
+        type: "assistant",
+        content: `✅ Loaded session: ${sessionData.metadata.name} (${sessionData.metadata.messageCount} messages)`,
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, successEntry]);
+
+      clearInput();
+      return true;
+    }
+
+    // Handle /sessions command
+    if (trimmedInput === "/sessions") {
+      const sessionManager = getSessionManager();
+      const sessions = sessionManager.listSessions();
+
+      let sessionsText = "Saved Sessions:\n\n";
+      if (sessions.length === 0) {
+        sessionsText += "No saved sessions found.\n";
+      } else {
+        sessions.forEach((session) => {
+          sessionsText += `  ${session.name}\n`;
+          sessionsText += `    Created: ${session.created.toLocaleString()}\n`;
+          sessionsText += `    Messages: ${session.messageCount}\n`;
+          sessionsText += `    Model: ${session.model}\n`;
+          if (session.description) {
+            sessionsText += `    Description: ${session.description}\n`;
+          }
+          sessionsText += "\n";
+        });
+      }
+
+      const listEntry: ChatEntry = {
+        type: "assistant",
+        content: sessionsText,
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, listEntry]);
+      clearInput();
+      return true;
+    }
 
     if (trimmedInput === "/commit-and-push") {
       const userEntry: ChatEntry = {
@@ -615,15 +1008,30 @@ Respond with ONLY the commit message, no additional text.`;
     };
     setChatHistory((prev) => [...prev, userEntry]);
 
+    // Clear thinking content au début d'une nouvelle conversation
+    if (setThinkingContent) {
+      setThinkingContent("");
+    }
+
     setIsProcessing(true);
     clearInput();
 
     try {
       setIsStreaming(true);
       let streamingEntry: ChatEntry | null = null;
+      let accumulatedThinking = "";
+      let totalTools = 0;
+      let completedTools = 0;
 
       for await (const chunk of agent.processUserMessageStream(userInput)) {
         switch (chunk.type) {
+          case "thinking":
+            if (chunk.content && setThinkingContent) {
+              accumulatedThinking += chunk.content;
+              setThinkingContent(accumulatedThinking);
+            }
+            break;
+
           case "content":
             if (chunk.content) {
               if (!streamingEntry) {
@@ -669,6 +1077,26 @@ Respond with ONLY the commit message, no additional text.`;
               );
               streamingEntry = null;
 
+              // Initialiser le compteur d'outils
+              totalTools += chunk.toolCalls.length;
+
+              // Ajouter ou mettre à jour le message synthétique au thinking panel
+              if (setThinkingContent) {
+                setThinkingContent(prev => {
+                  const lines = prev.split('\n');
+                  const toolLineIndex = lines.findIndex(line => line.includes('🔧 Executing tools:'));
+
+                  if (toolLineIndex !== -1) {
+                    // Mettre à jour la ligne existante
+                    lines[toolLineIndex] = `🔧 Executing tools: ${completedTools}/${totalTools} completed`;
+                    return lines.join('\n');
+                  } else {
+                    // Créer la ligne si elle n'existe pas
+                    return `${prev}\n\n🔧 Executing tools: ${completedTools}/${totalTools} completed`;
+                  }
+                });
+              }
+
               // Add individual tool call entries to show tools are being executed
               chunk.toolCalls.forEach((toolCall) => {
                 const toolCallEntry: ChatEntry = {
@@ -684,6 +1112,23 @@ Respond with ONLY the commit message, no additional text.`;
 
           case "tool_result":
             if (chunk.toolCall && chunk.toolResult) {
+              // Incrémenter le compteur et mettre à jour la ligne
+              completedTools++;
+
+              if (setThinkingContent) {
+                setThinkingContent(prev => {
+                  // Remplacer la dernière ligne de compteur par la mise à jour
+                  const lines = prev.split('\n');
+                  const lastLineIndex = lines.findIndex(line => line.includes('🔧 Executing tools:'));
+
+                  if (lastLineIndex !== -1) {
+                    lines[lastLineIndex] = `🔧 Executing tools: ${completedTools}/${totalTools} completed`;
+                    return lines.join('\n');
+                  }
+                  return prev;
+                });
+              }
+
               setChatHistory((prev) =>
                 prev.map((entry) => {
                   if (entry.isStreaming) {
@@ -697,9 +1142,7 @@ Respond with ONLY the commit message, no additional text.`;
                     return {
                       ...entry,
                       type: "tool_result",
-                      content: chunk.toolResult.success
-                        ? chunk.toolResult.output || "Success"
-                        : chunk.toolResult.error || "Error occurred",
+                      content: summarizeToolResult(chunk.toolCall, chunk.toolResult),
                       toolResult: chunk.toolResult,
                     };
                   }
@@ -719,6 +1162,10 @@ Respond with ONLY the commit message, no additional text.`;
               );
             }
             setIsStreaming(false);
+            // Clear le thinking à la fin
+            if (setThinkingContent) {
+              setThinkingContent("");
+            }
             break;
         }
       }
@@ -748,5 +1195,6 @@ Respond with ONLY the commit message, no additional text.`;
     availableModels,
     agent,
     autoEditEnabled,
+    showThinking,
   };
 }

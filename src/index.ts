@@ -3,11 +3,18 @@ import React from "react";
 import { render } from "ink";
 import { program } from "commander";
 import * as dotenv from "dotenv";
-import { GrokAgent } from "./agent/grok-agent.js";
+import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
+import { ZaiAgent } from "./agent/zai-agent.js";
 import ChatInterface from "./ui/components/chat-interface.js";
+import OnboardingSetup from "./ui/components/onboarding-setup.js";
+import SettingsPanel from "./ui/components/settings-panel.js";
 import { getSettingsManager } from "./utils/settings-manager.js";
 import { ConfirmationService } from "./utils/confirmation-service.js";
 import { createMCPCommand } from "./commands/mcp.js";
+import { getMetricsCollector } from "./utils/metrics.js";
+import { getSessionManager } from "./utils/session-manager.js";
 import type { ChatCompletionMessageParam } from "openai/resources/chat";
 
 // Load environment variables
@@ -39,6 +46,13 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled rejection at:", promise, "reason:", reason);
   process.exit(1);
 });
+
+// Check if this is the first run
+function isFirstRun(): boolean {
+  const manager = getSettingsManager();
+  const settingsPath = path.join(os.homedir(), ".zai", "user-settings.json");
+  return !fs.existsSync(settingsPath) || !manager.getApiKey();
+}
 
 // Ensure user settings are initialized
 function ensureUserSettingsDirectory(): void {
@@ -74,11 +88,11 @@ async function saveCommandLineSettings(
     // Update with command line values
     if (apiKey) {
       manager.updateUserSetting("apiKey", apiKey);
-      console.log("✅ API key saved to ~/.grok/user-settings.json");
+      console.log("✅ API key saved to ~/.zai/user-settings.json");
     }
     if (baseURL) {
       manager.updateUserSetting("baseURL", baseURL);
-      console.log("✅ Base URL saved to ~/.grok/user-settings.json");
+      console.log("✅ Base URL saved to ~/.zai/user-settings.json");
     }
   } catch (error) {
     console.warn(
@@ -91,7 +105,7 @@ async function saveCommandLineSettings(
 // Load model from user settings if not in environment
 function loadModel(): string | undefined {
   // First check environment variables
-  let model = process.env.GROK_MODEL;
+  let model = process.env.ZAI_MODEL;
 
   if (!model) {
     // Use the unified model loading from settings manager
@@ -114,7 +128,7 @@ async function handleCommitAndPushHeadless(
   maxToolRounds?: number
 ): Promise<void> {
   try {
-    const agent = new GrokAgent(apiKey, baseURL, model, maxToolRounds);
+    const agent = new ZaiAgent(apiKey, baseURL, model, maxToolRounds);
 
     // Configure confirmation service for headless mode (auto-approve all operations)
     const confirmationService = ConfirmationService.getInstance();
@@ -236,7 +250,7 @@ async function processPromptHeadless(
   maxToolRounds?: number
 ): Promise<void> {
   try {
-    const agent = new GrokAgent(apiKey, baseURL, model, maxToolRounds);
+    const agent = new ZaiAgent(apiKey, baseURL, model, maxToolRounds);
 
     // Configure confirmation service for headless mode (auto-approve all operations)
     const confirmationService = ConfirmationService.getInstance();
@@ -307,21 +321,21 @@ async function processPromptHeadless(
 }
 
 program
-  .name("grok")
+  .name("zai")
   .description(
-    "A conversational AI CLI tool powered by Grok with text editor capabilities"
+    "A conversational AI CLI tool powered by Z.ai with text editor capabilities"
   )
   .version("1.0.1")
-  .argument("[message...]", "Initial message to send to Grok")
+  .argument("[message...]", "Initial message to send to ZAI")
   .option("-d, --directory <dir>", "set working directory", process.cwd())
-  .option("-k, --api-key <key>", "Grok API key (or set GROK_API_KEY env var)")
+  .option("-k, --api-key <key>", "ZAI API key (or set ZAI_API_KEY env var)")
   .option(
     "-u, --base-url <url>",
-    "Grok API base URL (or set GROK_BASE_URL env var)"
+    "ZAI API base URL (or set ZAI_BASE_URL env var)"
   )
   .option(
     "-m, --model <model>",
-    "AI model to use (e.g., grok-code-fast-1, grok-4-latest) (or set GROK_MODEL env var)"
+    "AI model to use (e.g., glm-4.6, glm-4.5) (or set ZAI_MODEL env var)"
   )
   .option(
     "-p, --prompt <prompt>",
@@ -331,6 +345,10 @@ program
     "--max-tool-rounds <rounds>",
     "maximum number of tool execution rounds (default: 400)",
     "400"
+  )
+  .option(
+    "-w, --watch",
+    "watch for file changes and auto-reload context"
   )
   .action(async (message, options) => {
     if (options.directory) {
@@ -346,6 +364,26 @@ program
     }
 
     try {
+      // Check if this is the first run and launch onboarding if needed
+      if (isFirstRun() && !options.apiKey && !options.prompt) {
+        console.log("🎉 Welcome to ZAI CLI!\n");
+        render(
+          React.createElement(OnboardingSetup, {
+            onComplete: (apiKey: string, model: string) => {
+              // After onboarding, start the chat interface
+              const settingsManager = getSettingsManager();
+              const baseURL = settingsManager.getBaseURL();
+              const agent = new ZaiAgent(apiKey, baseURL, model);
+              const initialMessage = Array.isArray(message)
+                ? message.join(" ")
+                : message;
+              render(React.createElement(ChatInterface, { agent, initialMessage, watchMode: options.watch || false }));
+            },
+          })
+        );
+        return;
+      }
+
       // Get API key from options, environment, or user settings
       const apiKey = options.apiKey || loadApiKey();
       const baseURL = options.baseUrl || loadBaseURL();
@@ -354,7 +392,7 @@ program
 
       if (!apiKey) {
         console.error(
-          "❌ Error: API key required. Set GROK_API_KEY environment variable, use --api-key flag, or save to ~/.grok/user-settings.json"
+          "❌ Error: API key required. Set ZAI_API_KEY environment variable, use --api-key flag, or run 'zai config' to set it up."
         );
         process.exit(1);
       }
@@ -377,8 +415,8 @@ program
       }
 
       // Interactive mode: launch UI
-      const agent = new GrokAgent(apiKey, baseURL, model, maxToolRounds);
-      console.log("🤖 Starting Grok CLI Conversational Assistant...\n");
+      const agent = new ZaiAgent(apiKey, baseURL, model, maxToolRounds);
+      console.log("🤖 Starting ZAI CLI Conversational Assistant...\n");
 
       ensureUserSettingsDirectory();
 
@@ -387,9 +425,173 @@ program
         ? message.join(" ")
         : message;
 
-      render(React.createElement(ChatInterface, { agent, initialMessage }));
+      render(React.createElement(ChatInterface, { agent, initialMessage, watchMode: options.watch || false }));
     } catch (error: any) {
-      console.error("❌ Error initializing Grok CLI:", error.message);
+      console.error("❌ Error initializing ZAI CLI:", error.message);
+      process.exit(1);
+    }
+  });
+
+// Config command
+program
+  .command("config")
+  .description("Manage ZAI CLI settings")
+  .option("--show", "Display current configuration")
+  .option("--reset", "Reset to default settings")
+  .option("--set-key <key>", "Set API key directly")
+  .option("--set-url <url>", "Set base URL directly")
+  .action(async (options) => {
+    const manager = getSettingsManager();
+
+    try {
+      // Show current configuration
+      if (options.show) {
+        const settings = manager.loadUserSettings();
+        console.log("\n⚙️  ZAI CLI Configuration:");
+        console.log("─".repeat(50));
+        console.log(
+          `API Key: ${settings.apiKey ? "***" + settings.apiKey.slice(-8) : "Not set"}`
+        );
+        console.log(`Base URL: ${settings.baseURL || "Not set"}`);
+        console.log(`Default Model: ${settings.defaultModel || "Not set"}`);
+        console.log(
+          `Available Models: ${settings.models?.join(", ") || "None"}`
+        );
+        console.log("─".repeat(50) + "\n");
+        return;
+      }
+
+      // Reset to defaults
+      if (options.reset) {
+        const settingsPath = path.join(os.homedir(), ".zai", "user-settings.json");
+        if (fs.existsSync(settingsPath)) {
+          fs.unlinkSync(settingsPath);
+          console.log("✅ Settings reset to defaults");
+        } else {
+          console.log("ℹ️  No settings file found");
+        }
+        return;
+      }
+
+      // Set API key directly
+      if (options.setKey) {
+        manager.updateUserSetting("apiKey", options.setKey);
+        console.log("✅ API key updated successfully");
+        return;
+      }
+
+      // Set base URL directly
+      if (options.setUrl) {
+        manager.updateUserSetting("baseURL", options.setUrl);
+        console.log("✅ Base URL updated successfully");
+        return;
+      }
+
+      // Default: launch settings panel
+      console.log("⚙️  Opening ZAI CLI Settings...\n");
+      render(React.createElement(SettingsPanel));
+    } catch (error: any) {
+      console.error("❌ Error managing settings:", error.message);
+      process.exit(1);
+    }
+  });
+
+// Metrics command
+program
+  .command("metrics")
+  .description("View performance metrics and analytics")
+  .option("--show", "Display current metrics summary (default)")
+  .option("--report", "Generate detailed performance report")
+  .option("--export [path]", "Export metrics to JSON file")
+  .option("--clear", "Clear all metrics data")
+  .option("--recent <count>", "Show recent N tasks (default: 10)", "10")
+  .action(async (options) => {
+    const metrics = getMetricsCollector();
+
+    try {
+      // Clear metrics
+      if (options.clear) {
+        metrics.clearMetrics();
+        console.log("✅ All metrics data cleared");
+        return;
+      }
+
+      // Export metrics
+      if (options.export !== undefined) {
+        const exportPath = metrics.exportMetrics(
+          typeof options.export === "string" ? options.export : undefined
+        );
+        console.log(`✅ Metrics exported to: ${exportPath}`);
+        return;
+      }
+
+      // Generate detailed report
+      if (options.report) {
+        const report = metrics.generateReport();
+        console.log("\n" + report);
+        return;
+      }
+
+      // Default: Show summary
+      const avg = metrics.getAverageMetrics();
+      const recentCount = parseInt(options.recent || "10", 10);
+      const recent = metrics.getRecentMetrics(recentCount);
+
+      console.log("\n📊 ZAI CLI Metrics Summary");
+      console.log("=".repeat(50));
+
+      if (avg.totalTasks === 0) {
+        console.log("\nNo metrics data available yet.");
+        console.log("Metrics will be collected as you use ZAI CLI.\n");
+        return;
+      }
+
+      console.log(`\n📈 Overall Statistics (${avg.totalTasks} tasks):`);
+      console.log(`  Completion Rate: ${avg.completionRate.toFixed(1)}%`);
+      console.log(
+        `  First Attempt Success: ${avg.firstAttemptSuccessRate.toFixed(1)}%`
+      );
+      console.log(`  Avg Tool Rounds: ${avg.avgToolRounds.toFixed(2)}`);
+      console.log(`  Avg Tool Calls: ${avg.avgToolCalls.toFixed(2)}`);
+      console.log(`  Avg Errors: ${avg.avgErrors.toFixed(2)}`);
+      console.log(`  Avg Duration: ${avg.avgDurationSeconds.toFixed(2)}s`);
+
+      console.log(`\n💰 Token Usage:`);
+      console.log(`  Avg Tokens/Task: ${avg.avgTokens.toFixed(0)}`);
+      console.log(`  Total Tokens: ${(avg.avgTokens * avg.totalTasks).toFixed(0)}`);
+
+      console.log(`\n🔧 Tool Usage:`);
+      const toolUsage = metrics.getToolUsageStats();
+      const sortedTools = Object.entries(toolUsage)
+        .sort(([, a], [, b]) => b.count - a.count)
+        .slice(0, 5);
+
+      sortedTools.forEach(([tool, stats]) => {
+        console.log(
+          `  ${tool}: ${stats.count} calls (${stats.percentage.toFixed(1)}%)`
+        );
+      });
+
+      if (recent.length > 0) {
+        console.log(`\n📝 Recent ${recentCount} Tasks:`);
+        recent.forEach((task, i) => {
+          const status = task.taskCompleted ? "✅" : "❌";
+          const duration = (task.durationMs / 1000).toFixed(1);
+          const message =
+            task.userMessage.length > 50
+              ? task.userMessage.substring(0, 47) + "..."
+              : task.userMessage;
+          console.log(
+            `  ${status} ${duration}s | ${task.totalToolCalls} calls | ${message}`
+          );
+        });
+      }
+
+      console.log("\n💡 Use --report for detailed analysis");
+      console.log("💡 Use --export to save metrics data");
+      console.log("=".repeat(50) + "\n");
+    } catch (error: any) {
+      console.error("❌ Error accessing metrics:", error.message);
       process.exit(1);
     }
   });
@@ -403,14 +605,14 @@ gitCommand
   .command("commit-and-push")
   .description("Generate AI commit message and push to remote")
   .option("-d, --directory <dir>", "set working directory", process.cwd())
-  .option("-k, --api-key <key>", "Grok API key (or set GROK_API_KEY env var)")
+  .option("-k, --api-key <key>", "ZAI API key (or set ZAI_API_KEY env var)")
   .option(
     "-u, --base-url <url>",
-    "Grok API base URL (or set GROK_BASE_URL env var)"
+    "ZAI API base URL (or set ZAI_BASE_URL env var)"
   )
   .option(
     "-m, --model <model>",
-    "AI model to use (e.g., grok-code-fast-1, grok-4-latest) (or set GROK_MODEL env var)"
+    "AI model to use (e.g., glm-4.6, glm-4.5) (or set ZAI_MODEL env var)"
   )
   .option(
     "--max-tool-rounds <rounds>",
@@ -439,7 +641,7 @@ gitCommand
 
       if (!apiKey) {
         console.error(
-          "❌ Error: API key required. Set GROK_API_KEY environment variable, use --api-key flag, or save to ~/.grok/user-settings.json"
+          "❌ Error: API key required. Set ZAI_API_KEY environment variable, use --api-key flag, or run 'zai config' to set it up."
         );
         process.exit(1);
       }
@@ -458,5 +660,112 @@ gitCommand
 
 // MCP command
 program.addCommand(createMCPCommand());
+
+// Session list command
+program
+  .command("sessions")
+  .description("List all saved sessions")
+  .option("-v, --verbose", "Show detailed information")
+  .action((options) => {
+    const sessionManager = getSessionManager();
+    const sessions = sessionManager.listSessions();
+
+    if (sessions.length === 0) {
+      console.log("No saved sessions found.");
+      return;
+    }
+
+    console.log(`\n📚 Saved Sessions (${sessions.length}):\n`);
+
+    for (const session of sessions) {
+      console.log(`  ${session.name}`);
+      console.log(`    ID: ${session.id}`);
+      console.log(`    Created: ${session.created.toLocaleString()}`);
+      console.log(`    Messages: ${session.messageCount}`);
+      console.log(`    Model: ${session.model}`);
+      if (options.verbose && session.description) {
+        console.log(`    Description: ${session.description}`);
+      }
+      console.log("");
+    }
+  });
+
+// Session save command
+program
+  .command("save-session <name>")
+  .description("Save current session")
+  .option("-d, --description <desc>", "Session description")
+  .action((name, options) => {
+    // This will be integrated with the running agent
+    console.log("⚠️  This command should be used within an active ZAI session.");
+    console.log('   Use Ctrl+S or type "/save" during a conversation.');
+  });
+
+// Session load command
+program
+  .command("load-session <name>")
+  .description("Load a saved session")
+  .action(async (name) => {
+    const sessionManager = getSessionManager();
+    const sessionData = sessionManager.loadSession(name);
+
+    if (!sessionData) {
+      console.log(`❌ Session not found: ${name}`);
+      return;
+    }
+
+    console.log(`✅ Loaded session: ${sessionData.metadata.name}`);
+    console.log(`   Messages: ${sessionData.metadata.messageCount}`);
+    console.log(`   Model: ${sessionData.metadata.model}`);
+    console.log("\nStarting ZAI with loaded session...\n");
+
+    // Get API key from user settings
+    const apiKey = loadApiKey();
+    const baseURL = loadBaseURL();
+
+    if (!apiKey) {
+      console.error(
+        "❌ Error: API key required. Set ZAI_API_KEY environment variable or run 'zai config' to set it up."
+      );
+      process.exit(1);
+    }
+
+    // Start interactive mode with loaded session
+    const agent = new ZaiAgent(apiKey, baseURL, sessionData.context.model);
+
+    render(
+      React.createElement(ChatInterface, {
+        agent,
+        initialSession: sessionData,
+      })
+    );
+  });
+
+// Session delete command
+program
+  .command("delete-session <name>")
+  .description("Delete a saved session")
+  .action((name) => {
+    const sessionManager = getSessionManager();
+    const success = sessionManager.deleteSession(name);
+
+    if (!success) {
+      console.log(`❌ Session not found: ${name}`);
+    }
+  });
+
+// Session export command
+program
+  .command("export-session <name> [output]")
+  .description("Export session to markdown")
+  .action((name, output) => {
+    const sessionManager = getSessionManager();
+    const outputPath = output || `${name}.md`;
+    const result = sessionManager.exportSessionToMarkdown(name, outputPath);
+
+    if (!result) {
+      console.log(`❌ Session not found: ${name}`);
+    }
+  });
 
 program.parse();
