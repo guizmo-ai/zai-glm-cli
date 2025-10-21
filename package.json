@@ -14,6 +14,7 @@
     "zai": "dist/index.js"
   },
   "scripts": {
+    "prepare": "npm install --production || true",
     "build": "tsc",
     "build:bun": "bun run tsc",
     "dev": "bun run src/index.ts",
