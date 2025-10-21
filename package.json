@@ -1,5 +1,5 @@
 {
-  "name": "@vibe-kit/zai-cli",
+  "name": "@guizmo-ai/zai-cli",
   "version": "0.1.0",
   "description": "An open-source AI agent that brings the power of Z.ai GLM models directly into your terminal.",
   "type": "module",
@@ -14,8 +14,8 @@
     "zai": "dist/index.js"
   },
   "scripts": {
-    "prepare": "npm install --production || true",
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "build:bun": "bun run tsc",
     "dev": "bun run src/index.ts",
     "dev:node": "tsx src/index.ts",
@@ -47,6 +47,11 @@
     "url": "https://github.com/guizmo-ai/zai-glm-cli/issues"
   },
   "homepage": "https://github.com/guizmo-ai/zai-glm-cli#readme",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
     "axios": "^1.7.0",
