@@ -9,6 +9,8 @@ import { getSettingsManager } from "../utils/settings-manager.js";
 import { getMetricsCollector } from "../utils/metrics.js";
 import { ErrorHandler } from "../utils/error-handler.js";
 import { ToolExecutionError } from "../errors/index.js";
+import { StreamProcessor } from "./stream-processor.js";
+import { createChatStateMachine } from "./chat-state-machine.js";
 export class ZaiAgent extends EventEmitter {
     zaiClient;
     textEditor;
@@ -556,10 +558,13 @@ ${summary}
         let totalOutputTokens = 0;
         let lastTokenUpdate = 0;
         try {
-            // Agent loop - continue until no more tool calls or max rounds reached
+            // Create state machine for sequential flow control
+            const stateMachine = createChatStateMachine();
+            // Execute main agent loop with sequential processing
             while (toolRounds < maxToolRounds) {
-                // Check if operation was cancelled
+                // Check for cancellation
                 if (this.abortController?.signal.aborted) {
+                    stateMachine.transition("error");
                     yield {
                         type: "content",
                         content: "\n\n[Operation cancelled by user]",
@@ -567,101 +572,65 @@ ${summary}
                     yield { type: "done" };
                     return;
                 }
-                // Stream response and accumulate
+                // Transition to thinking state
+                stateMachine.transition("thinking");
+                // Get tools and create stream
                 const tools = await getAllZaiTools();
                 const stream = this.zaiClient.chatStream(this.messages, tools);
-                let accumulatedMessage = {};
-                let accumulatedContent = "";
-                let toolCallsYielded = false;
-                for await (const chunk of stream) {
-                    // Check for cancellation in the streaming loop
-                    if (this.abortController?.signal.aborted) {
-                        yield {
-                            type: "content",
-                            content: "\n\n[Operation cancelled by user]",
-                        };
-                        yield { type: "done" };
-                        return;
-                    }
-                    if (!chunk.choices?.[0])
-                        continue;
-                    // Accumulate the message using reducer
-                    accumulatedMessage = this.messageReducer(accumulatedMessage, chunk);
-                    // Check for tool calls - yield when we have complete tool calls with function names
-                    if (!toolCallsYielded && accumulatedMessage.tool_calls?.length > 0) {
-                        // Check if we have at least one complete tool call with a function name
-                        const hasCompleteTool = accumulatedMessage.tool_calls.some((tc) => tc.function?.name);
-                        if (hasCompleteTool) {
-                            yield {
-                                type: "tool_calls",
-                                toolCalls: accumulatedMessage.tool_calls,
-                            };
-                            toolCallsYielded = true;
-                        }
-                    }
-                    // Stream thinking content if available (for GLM-4.6 and compatible models)
-                    // L'API Z.ai utilise le champ "reasoning_content" pour le thinking
-                    const delta = chunk.choices[0].delta;
-                    const thinkingContent = delta.reasoning_content;
-                    if (thinkingContent) {
+                // CRITICAL: Process ENTIRE stream before continuing
+                const processor = new StreamProcessor();
+                const result = await processor.process(stream);
+                // Check for cancellation after stream completes
+                if (this.abortController?.signal.aborted) {
+                    stateMachine.transition("error");
+                    yield {
+                        type: "content",
+                        content: "\n\n[Operation cancelled by user]",
+                    };
+                    yield { type: "done" };
+                    return;
+                }
+                // Stream thinking content if available (o1-style reasoning)
+                if (result.thinking) {
+                    for (const char of result.thinking) {
                         yield {
                             type: "thinking",
-                            content: thinkingContent,
+                            content: char,
                         };
-                    }
-                    // Stream content as it comes
-                    if (chunk.choices[0].delta?.content) {
-                        accumulatedContent += chunk.choices[0].delta.content;
-                        // Update token count in real-time including accumulated content and any tool calls
-                        const currentOutputTokens = this.tokenCounter.estimateStreamingTokens(accumulatedContent) +
-                            (accumulatedMessage.tool_calls
-                                ? this.tokenCounter.countTokens(JSON.stringify(accumulatedMessage.tool_calls))
-                                : 0);
-                        totalOutputTokens = currentOutputTokens;
-                        yield {
-                            type: "content",
-                            content: chunk.choices[0].delta.content,
-                        };
-                        // Emit token count update
-                        const now = Date.now();
-                        if (now - lastTokenUpdate > 250) {
-                            lastTokenUpdate = now;
-                            yield {
-                                type: "token_count",
-                                tokenCount: inputTokens + totalOutputTokens,
-                            };
-                        }
+                        await new Promise((resolve) => setTimeout(resolve, 5));
                     }
                 }
-                // Add assistant entry to history
-                const assistantEntry = {
-                    type: "assistant",
-                    content: accumulatedMessage.content || "Using tools to help you...",
-                    timestamp: new Date(),
-                    toolCalls: accumulatedMessage.tool_calls || undefined,
-                };
-                this.chatHistory.push(assistantEntry);
-                // Add accumulated message to conversation
-                this.messages.push({
-                    role: "assistant",
-                    content: accumulatedMessage.content || "",
-                    tool_calls: accumulatedMessage.tool_calls,
-                });
-                // Handle tool calls if present
-                if (accumulatedMessage.tool_calls?.length > 0) {
+                // Check for tool calls BEFORE streaming content
+                if (processor.hasToolCalls(result)) {
+                    // Transition to tool planning state
+                    stateMachine.transition("planning_tools");
                     toolRounds++;
                     metrics.recordToolRound();
-                    // Only yield tool_calls if we haven't already yielded them during streaming
-                    if (!toolCallsYielded) {
-                        yield {
-                            type: "tool_calls",
-                            toolCalls: accumulatedMessage.tool_calls,
-                        };
-                    }
-                    // Execute tools
-                    for (const toolCall of accumulatedMessage.tool_calls) {
-                        // Check for cancellation before executing each tool
+                    // Announce tool calls
+                    yield {
+                        type: "tool_calls",
+                        toolCalls: result.toolCalls,
+                    };
+                    // Add assistant message with tool calls
+                    const assistantEntry = {
+                        type: "assistant",
+                        content: result.content || "Using tools to help you...",
+                        timestamp: new Date(),
+                        toolCalls: result.toolCalls,
+                    };
+                    this.chatHistory.push(assistantEntry);
+                    this.messages.push({
+                        role: "assistant",
+                        content: result.content || "",
+                        tool_calls: result.toolCalls,
+                    });
+                    // Transition to executing tools
+                    stateMachine.transition("executing_tools");
+                    // Execute tools sequentially
+                    for (const toolCall of result.toolCalls) {
+                        // Check for cancellation before each tool
                         if (this.abortController?.signal.aborted) {
+                            stateMachine.transition("error");
                             yield {
                                 type: "content",
                                 content: "\n\n[Operation cancelled by user]",
@@ -670,46 +639,97 @@ ${summary}
                             metrics.endTask(false);
                             return;
                         }
-                        const result = await this.executeTool(toolCall);
+                        const toolResult = await this.executeTool(toolCall);
                         // Record tool call metrics
-                        metrics.recordToolCall(toolCall.function.name, result.success);
+                        metrics.recordToolCall(toolCall.function.name, toolResult.success);
                         const toolResultEntry = {
                             type: "tool_result",
-                            content: result.success
-                                ? result.output || "Success"
-                                : result.error || "Error occurred",
+                            content: toolResult.success
+                                ? toolResult.output || "Success"
+                                : toolResult.error || "Error occurred",
                             timestamp: new Date(),
                             toolCall: toolCall,
-                            toolResult: result,
+                            toolResult: toolResult,
                         };
                         this.chatHistory.push(toolResultEntry);
                         yield {
                             type: "tool_result",
                             toolCall,
-                            toolResult: result,
+                            toolResult,
                         };
-                        // Add tool result with proper format (needed for AI context)
+                        // Add tool result to messages
                         this.messages.push({
                             role: "tool",
-                            content: result.success
-                                ? result.output || "Success"
-                                : result.error || "Error",
+                            content: toolResult.success
+                                ? toolResult.output || "Success"
+                                : toolResult.error || "Error",
                             tool_call_id: toolCall.id,
                         });
                     }
-                    // Update token count after processing all tool calls to include tool results
+                    // Update token count after tools
                     inputTokens = this.tokenCounter.countMessageTokens(this.messages);
-                    // Final token update after tools processed
+                    totalOutputTokens = this.tokenCounter.countTokens(result.content || "");
                     yield {
                         type: "token_count",
                         tokenCount: inputTokens + totalOutputTokens,
                     };
-                    // Continue the loop to get the next response (which might have more tool calls)
+                    // Continue loop to get next response
+                    continue;
                 }
-                else {
-                    // No tool calls, we're done
-                    break;
+                // No tool calls - stream final content
+                stateMachine.transition("responding");
+                if (result.content) {
+                    // Stream content word by word for smooth UX
+                    const words = result.content.split(/(\s+)/);
+                    for (const word of words) {
+                        // Check cancellation during streaming
+                        if (this.abortController?.signal.aborted) {
+                            stateMachine.transition("error");
+                            yield {
+                                type: "content",
+                                content: "\n\n[Operation cancelled by user]",
+                            };
+                            yield { type: "done" };
+                            return;
+                        }
+                        yield {
+                            type: "content",
+                            content: word,
+                        };
+                        // Emit token count updates periodically
+                        const now = Date.now();
+                        if (now - lastTokenUpdate > 250) {
+                            lastTokenUpdate = now;
+                            yield {
+                                type: "token_count",
+                                tokenCount: inputTokens + totalOutputTokens,
+                            };
+                        }
+                        // Small delay for smooth streaming effect
+                        await new Promise((resolve) => setTimeout(resolve, 10));
+                    }
+                    // Update token count
+                    totalOutputTokens = this.tokenCounter.countTokens(result.content);
+                    yield {
+                        type: "token_count",
+                        tokenCount: inputTokens + totalOutputTokens,
+                    };
                 }
+                // Add final assistant message
+                const assistantEntry = {
+                    type: "assistant",
+                    content: result.content || "",
+                    timestamp: new Date(),
+                };
+                this.chatHistory.push(assistantEntry);
+                this.messages.push({
+                    role: "assistant",
+                    content: result.content || "",
+                });
+                // Transition to done
+                stateMachine.transition("done");
+                // Exit loop - no more tool calls
+                break;
             }
             if (toolRounds >= maxToolRounds) {
                 yield {
@@ -717,7 +737,7 @@ ${summary}
                     content: "\n\nMaximum tool execution rounds reached. Stopping to prevent infinite loops.",
                 };
             }
-            // Record final token usage and complete task
+            // Record final metrics
             metrics.recordTokens(inputTokens, totalOutputTokens);
             metrics.endTask(true);
             yield { type: "done" };
