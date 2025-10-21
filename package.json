@@ -14,7 +14,7 @@
     "zai": "dist/index.js"
   },
   "scripts": {
-    "postinstall": "test -f dist/index.js || npm run build",
+    "postinstall": "[ -f dist/index.js ] || tsc",
     "build": "tsc",
     "build:bun": "bun run tsc",
     "dev": "bun run src/index.ts",
