@@ -20,6 +20,7 @@ const loadingTexts = [
 export function LoadingSpinner({ isActive, processingTime, tokenCount, }) {
     const [spinnerFrame, setSpinnerFrame] = useState(0);
     const [loadingTextIndex, setLoadingTextIndex] = useState(0);
+    const [dots, setDots] = useState(".");
     useEffect(() => {
         if (!isActive)
             return;
@@ -28,6 +29,21 @@ export function LoadingSpinner({ isActive, processingTime, tokenCount, }) {
         const interval = setInterval(() => {
             setSpinnerFrame((prev) => (prev + 1) % spinnerFrames.length);
         }, 500);
+        return () => clearInterval(interval);
+    }, [isActive]);
+    // Animated dots for persistent visual feedback
+    useEffect(() => {
+        if (!isActive) {
+            setDots(".");
+            return;
+        }
+        const interval = setInterval(() => {
+            setDots((prev) => {
+                if (prev === "...")
+                    return ".";
+                return prev + ".";
+            });
+        }, 400);
         return () => clearInterval(interval);
     }, [isActive]);
     useEffect(() => {
@@ -44,12 +60,13 @@ export function LoadingSpinner({ isActive, processingTime, tokenCount, }) {
         return null;
     const spinnerFrames = ["/", "-", "\\", "|"];
     return (React.createElement(Box, { marginTop: 1 },
-        React.createElement(Text, { color: "cyan" },
+        React.createElement(Text, { color: "cyan", bold: true },
             spinnerFrames[spinnerFrame],
             " ",
             loadingTexts[loadingTextIndex],
-            " "),
+            dots),
         React.createElement(Text, { color: "gray" },
+            " ",
             "(",
             processingTime,
             "s \u00B7 \u2191 ",
