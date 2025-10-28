@@ -8,7 +8,7 @@ import * as os from "os";
 import * as fs from "fs";
 import { ZaiAgent } from "./agent/zai-agent.js";
 import ChatInterface from "./ui/components/chat-interface.js";
-import OnboardingSetup from "./ui/components/onboarding-setup.js";
+import AppWrapper from "./ui/components/app-wrapper.js";
 import SettingsPanel from "./ui/components/settings-panel.js";
 import { getSettingsManager } from "./utils/settings-manager.js";
 import { ConfirmationService } from "./utils/confirmation-service.js";
@@ -268,7 +268,19 @@ program
     .option("-p, --prompt <prompt>", "process a single prompt and exit (headless mode)")
     .option("--max-tool-rounds <rounds>", "maximum number of tool execution rounds (default: 400)", "400")
     .option("-w, --watch", "watch for file changes and auto-reload context")
+    .option("--no-color", "disable colored output (useful for CI/CD environments)")
+    .option("--debug", "enable debug mode with verbose logging")
     .action(async (message, options) => {
+    // Handle --no-color flag
+    if (options.color === false) {
+        process.env.NO_COLOR = "1";
+        process.env.FORCE_COLOR = "0";
+    }
+    // Handle --debug flag
+    if (options.debug) {
+        process.env.ZAI_DEBUG = "true";
+        console.log("🐛 Debug mode enabled");
+    }
     if (options.directory) {
         try {
             process.chdir(options.directory);
@@ -282,17 +294,13 @@ program
         // Check if this is the first run and launch onboarding if needed
         if (isFirstRun() && !options.apiKey && !options.prompt) {
             console.log("🎉 Welcome to ZAI CLI!\n");
-            render(React.createElement(OnboardingSetup, {
-                onComplete: (apiKey, model) => {
-                    // After onboarding, start the chat interface
-                    const settingsManager = getSettingsManager();
-                    const baseURL = settingsManager.getBaseURL();
-                    const agent = new ZaiAgent(apiKey, baseURL, model);
-                    const initialMessage = Array.isArray(message)
-                        ? message.join(" ")
-                        : message;
-                    render(React.createElement(ChatInterface, { agent, initialMessage, watchMode: options.watch || false }));
-                },
+            const initialMessage = Array.isArray(message)
+                ? message.join(" ")
+                : message;
+            render(React.createElement(AppWrapper, {
+                needsOnboarding: true,
+                initialMessage,
+                watchMode: options.watch || false,
             }));
             return;
         }

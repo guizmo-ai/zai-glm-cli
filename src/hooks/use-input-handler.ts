@@ -53,6 +53,7 @@ export function useInputHandler({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [showModelSelection, setShowModelSelection] = useState(false);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+  const [waitingForClearConfirmation, setWaitingForClearConfirmation] = useState(false);
   const [showThinking, setShowThinkingState] = useState(() => {
     // Initialiser avec l'état actuel du client
     const thinkingEnabled = agent.getClient().getThinkingEnabled();
@@ -187,6 +188,45 @@ export function useInputHandler({
       return;
     }
 
+    // Handle clear confirmation
+    if (waitingForClearConfirmation) {
+      if (userInput.trim().toLowerCase() === "yes") {
+        // Reset chat history
+        setChatHistory([]);
+
+        // Reset processing states
+        setIsProcessing(false);
+        setIsStreaming(false);
+        setTokenCount(0);
+        setProcessingTime(0);
+        processingStartTime.current = 0;
+
+        // Reset confirmation service session flags
+        const confirmationService = ConfirmationService.getInstance();
+        confirmationService.resetSession();
+
+        // Add confirmation message
+        const confirmEntry: ChatEntry = {
+          type: "assistant",
+          content: "✅ Chat history cleared successfully.",
+          timestamp: new Date(),
+        };
+        setChatHistory([confirmEntry]);
+      } else {
+        // User cancelled
+        const cancelEntry: ChatEntry = {
+          type: "assistant",
+          content: "❌ Clear cancelled. Chat history preserved.",
+          timestamp: new Date(),
+        };
+        setChatHistory((prev) => [...prev, cancelEntry]);
+      }
+      setWaitingForClearConfirmation(false);
+      clearInput();
+      resetHistory();
+      return;
+    }
+
     if (userInput.trim()) {
       const directCommandResult = await handleDirectCommand(userInput);
       if (!directCommandResult) {
@@ -261,7 +301,7 @@ export function useInputHandler({
       // Si l'output est très long, le résumer
       const output = toolResult.output || "";
       if (output.length > 500) {
-        const lines = output.split("\n");
+        const lines: string[] = output.split("\n");
         return `✓ ${displayCommand}\n${lines.slice(0, 5).join("\n")}\n... (${lines.length - 5} more lines)`;
       }
 
@@ -457,22 +497,17 @@ export function useInputHandler({
     const trimmedInput = input.trim();
 
     if (trimmedInput === "/clear") {
-      // Reset chat history
-      setChatHistory([]);
+      // Ask for confirmation before clearing
+      const confirmEntry: ChatEntry = {
+        type: "assistant",
+        content: "⚠️ Are you sure you want to clear the chat history? This cannot be undone.\n\nType 'yes' to confirm or any other key to cancel.",
+        timestamp: new Date(),
+      };
+      setChatHistory((prev) => [...prev, confirmEntry]);
 
-      // Reset processing states
-      setIsProcessing(false);
-      setIsStreaming(false);
-      setTokenCount(0);
-      setProcessingTime(0);
-      processingStartTime.current = 0;
-
-      // Reset confirmation service session flags
-      const confirmationService = ConfirmationService.getInstance();
-      confirmationService.resetSession();
-
+      // Set a flag to wait for confirmation
+      setWaitingForClearConfirmation(true);
       clearInput();
-      resetHistory();
       return true;
     }
 

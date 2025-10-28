@@ -66,7 +66,24 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       
       onApiKeySet(agent);
     } catch (error: any) {
-      setError("Invalid API key format");
+      let errorMessage = "Invalid API key";
+
+      // Provide more specific error messages
+      if (error.message?.includes("ENOTFOUND") || error.message?.includes("ECONNREFUSED")) {
+        errorMessage = "Network error: Cannot reach Z.ai API. Please check your internet connection.";
+      } else if (error.message?.includes("401") || error.message?.includes("Unauthorized")) {
+        errorMessage = "Invalid API key: The key you entered is not valid. Please check and try again.";
+      } else if (error.message?.includes("403") || error.message?.includes("Forbidden")) {
+        errorMessage = "API key rejected: This key doesn't have permission to access the API.";
+      } else if (error.message?.includes("429")) {
+        errorMessage = "Rate limit exceeded: Too many requests. Please try again later.";
+      } else if (error.message?.includes("timeout")) {
+        errorMessage = "Request timeout: API took too long to respond. Please try again.";
+      } else if (error.message) {
+        errorMessage = `API error: ${error.message}`;
+      }
+
+      setError(errorMessage);
       setIsSubmitting(false);
     }
   };

@@ -361,7 +361,27 @@ program
     "-w, --watch",
     "watch for file changes and auto-reload context"
   )
+  .option(
+    "--no-color",
+    "disable colored output (useful for CI/CD environments)"
+  )
+  .option(
+    "--debug",
+    "enable debug mode with verbose logging"
+  )
   .action(async (message, options) => {
+    // Handle --no-color flag
+    if (options.color === false) {
+      process.env.NO_COLOR = "1";
+      process.env.FORCE_COLOR = "0";
+    }
+
+    // Handle --debug flag
+    if (options.debug) {
+      process.env.ZAI_DEBUG = "true";
+      console.log("🐛 Debug mode enabled");
+    }
+
     if (options.directory) {
       try {
         process.chdir(options.directory);

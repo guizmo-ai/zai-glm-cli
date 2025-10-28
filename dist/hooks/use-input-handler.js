@@ -11,6 +11,7 @@ export function useInputHandler({ agent, chatHistory, setChatHistory, setIsProce
     const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
     const [showModelSelection, setShowModelSelection] = useState(false);
     const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+    const [waitingForClearConfirmation, setWaitingForClearConfirmation] = useState(false);
     const [showThinking, setShowThinkingState] = useState(() => {
         // Initialiser avec l'état actuel du client
         const thinkingEnabled = agent.getClient().getThinkingEnabled();
@@ -123,6 +124,42 @@ export function useInputHandler({ agent, chatHistory, setChatHistory, setIsProce
     const handleInputSubmit = async (userInput) => {
         if (userInput === "exit" || userInput === "quit") {
             process.exit(0);
+            return;
+        }
+        // Handle clear confirmation
+        if (waitingForClearConfirmation) {
+            if (userInput.trim().toLowerCase() === "yes") {
+                // Reset chat history
+                setChatHistory([]);
+                // Reset processing states
+                setIsProcessing(false);
+                setIsStreaming(false);
+                setTokenCount(0);
+                setProcessingTime(0);
+                processingStartTime.current = 0;
+                // Reset confirmation service session flags
+                const confirmationService = ConfirmationService.getInstance();
+                confirmationService.resetSession();
+                // Add confirmation message
+                const confirmEntry = {
+                    type: "assistant",
+                    content: "✅ Chat history cleared successfully.",
+                    timestamp: new Date(),
+                };
+                setChatHistory([confirmEntry]);
+            }
+            else {
+                // User cancelled
+                const cancelEntry = {
+                    type: "assistant",
+                    content: "❌ Clear cancelled. Chat history preserved.",
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, cancelEntry]);
+            }
+            setWaitingForClearConfirmation(false);
+            clearInput();
+            resetHistory();
             return;
         }
         if (userInput.trim()) {
@@ -345,19 +382,16 @@ export function useInputHandler({ agent, chatHistory, setChatHistory, setIsProce
     const handleDirectCommand = async (input) => {
         const trimmedInput = input.trim();
         if (trimmedInput === "/clear") {
-            // Reset chat history
-            setChatHistory([]);
-            // Reset processing states
-            setIsProcessing(false);
-            setIsStreaming(false);
-            setTokenCount(0);
-            setProcessingTime(0);
-            processingStartTime.current = 0;
-            // Reset confirmation service session flags
-            const confirmationService = ConfirmationService.getInstance();
-            confirmationService.resetSession();
+            // Ask for confirmation before clearing
+            const confirmEntry = {
+                type: "assistant",
+                content: "⚠️ Are you sure you want to clear the chat history? This cannot be undone.\n\nType 'yes' to confirm or any other key to cancel.",
+                timestamp: new Date(),
+            };
+            setChatHistory((prev) => [...prev, confirmEntry]);
+            // Set a flag to wait for confirmation
+            setWaitingForClearConfirmation(true);
             clearInput();
-            resetHistory();
             return true;
         }
         if (trimmedInput === "/help") {
