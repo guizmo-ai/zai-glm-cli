@@ -8,7 +8,7 @@ import * as os from "os";
 import * as fs from "fs";
 import { ZaiAgent } from "./agent/zai-agent.js";
 import ChatInterface from "./ui/components/chat-interface.js";
-import OnboardingSetup from "./ui/components/onboarding-setup.js";
+import AppWrapper from "./ui/components/app-wrapper.js";
 import SettingsPanel from "./ui/components/settings-panel.js";
 import { getSettingsManager } from "./utils/settings-manager.js";
 import { ConfirmationService } from "./utils/confirmation-service.js";
@@ -378,18 +378,14 @@ program
       // Check if this is the first run and launch onboarding if needed
       if (isFirstRun() && !options.apiKey && !options.prompt) {
         console.log("🎉 Welcome to ZAI CLI!\n");
+        const initialMessage = Array.isArray(message)
+          ? message.join(" ")
+          : message;
         render(
-          React.createElement(OnboardingSetup, {
-            onComplete: (apiKey: string, model: string) => {
-              // After onboarding, start the chat interface
-              const settingsManager = getSettingsManager();
-              const baseURL = settingsManager.getBaseURL();
-              const agent = new ZaiAgent(apiKey, baseURL, model);
-              const initialMessage = Array.isArray(message)
-                ? message.join(" ")
-                : message;
-              render(React.createElement(ChatInterface, { agent, initialMessage, watchMode: options.watch || false }));
-            },
+          React.createElement(AppWrapper, {
+            needsOnboarding: true,
+            initialMessage,
+            watchMode: options.watch || false,
           })
         );
         return;
