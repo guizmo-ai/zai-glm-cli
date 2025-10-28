@@ -475,6 +475,22 @@ Built-in Commands:
   /exit       - Exit application
   exit, quit  - Exit application
 
+Agent System:
+  /agents              - List all available specialized agents
+  /task <type> <desc>  - Create and execute an agent task
+  /tasks               - View all agent tasks and their status
+
+  Available agent types:
+    - code-reviewer: Review code for quality and bugs
+    - test-writer: Write comprehensive tests
+    - documentation: Create technical documentation
+    - refactoring: Refactor code for better structure
+    - debugging: Diagnose and fix bugs
+    - security-audit: Audit code for vulnerabilities
+    - performance-optimizer: Optimize code performance
+    - explore: Explore and understand codebases
+    - plan: Create detailed implementation plans
+
 Session Management:
   /save <name> [description]  - Save current session
   /load <name>                - Load a saved session
@@ -528,6 +544,127 @@ Examples:
                 timestamp: new Date(),
             };
             setChatHistory((prev) => [...prev, helpEntry]);
+            clearInput();
+            return true;
+        }
+        // Agent system commands
+        if (trimmedInput === "/agents") {
+            const { AGENT_CAPABILITIES } = await import("../agents/agent-types.js");
+            let agentsList = "🤖 Available Specialized Agents:\n\n";
+            Object.entries(AGENT_CAPABILITIES).forEach(([type, capability]) => {
+                agentsList += `**${capability.name}** (${type})\n`;
+                agentsList += `  ${capability.description}\n`;
+                agentsList += `  Tools: ${capability.tools.join(', ')}\n\n`;
+            });
+            agentsList += "\nUsage:\n";
+            agentsList += "  /task <agent-type> <description>\n";
+            agentsList += "  Example: /task code-reviewer Review the authentication module\n";
+            const helpEntry = {
+                type: "assistant",
+                content: agentsList,
+                timestamp: new Date(),
+            };
+            setChatHistory((prev) => [...prev, helpEntry]);
+            clearInput();
+            return true;
+        }
+        if (trimmedInput.startsWith("/task ")) {
+            const parts = trimmedInput.substring(6).trim().split(' ');
+            const agentType = parts[0];
+            const taskDescription = parts.slice(1).join(' ');
+            if (!agentType || !taskDescription) {
+                const errorEntry = {
+                    type: "assistant",
+                    content: "❌ Usage: /task <agent-type> <description>\n\nExample: /task code-reviewer Review authentication module\n\nUse /agents to see available agent types.",
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, errorEntry]);
+                clearInput();
+                return true;
+            }
+            try {
+                const { getTaskOrchestrator } = await import("../agents/task-orchestrator.js");
+                const { AGENT_CAPABILITIES } = await import("../agents/agent-types.js");
+                // Validate agent type
+                if (!AGENT_CAPABILITIES[agentType]) {
+                    const errorEntry = {
+                        type: "assistant",
+                        content: `❌ Unknown agent type: ${agentType}\n\nUse /agents to see available types.`,
+                        timestamp: new Date(),
+                    };
+                    setChatHistory((prev) => [...prev, errorEntry]);
+                    clearInput();
+                    return true;
+                }
+                const orchestrator = getTaskOrchestrator();
+                const task = orchestrator.createTask(agentType, taskDescription, taskDescription);
+                const statusEntry = {
+                    type: "assistant",
+                    content: `✅ Task created with ID: ${task.id}\n\nAgent: ${AGENT_CAPABILITIES[agentType].name}\nTask: ${taskDescription}\n\nExecuting...`,
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, statusEntry]);
+                // Execute task asynchronously
+                orchestrator.executeTask(task.id, agent).then((result) => {
+                    const resultEntry = {
+                        type: "assistant",
+                        content: result.success
+                            ? `✅ Task completed!\n\n${result.output}\n\n---\nDuration: ${result.metadata?.duration}ms | Tools used: ${result.metadata?.toolsUsed?.join(', ') || 'none'}`
+                            : `❌ Task failed: ${result.metadata?.error || 'Unknown error'}`,
+                        timestamp: new Date(),
+                    };
+                    setChatHistory((prev) => [...prev, resultEntry]);
+                });
+            }
+            catch (error) {
+                const errorEntry = {
+                    type: "assistant",
+                    content: `❌ Failed to create task: ${error.message}`,
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, errorEntry]);
+            }
+            clearInput();
+            return true;
+        }
+        if (trimmedInput === "/tasks") {
+            try {
+                const { getTaskOrchestrator } = await import("../agents/task-orchestrator.js");
+                const orchestrator = getTaskOrchestrator();
+                const stats = orchestrator.getStatistics();
+                const allTasks = orchestrator.getAllTasks();
+                let tasksList = "📋 Agent Tasks Overview:\n\n";
+                tasksList += `Total: ${stats.total} | Pending: ${stats.pending} | Running: ${stats.running} | Completed: ${stats.completed} | Failed: ${stats.failed}\n\n`;
+                if (allTasks.length === 0) {
+                    tasksList += "No tasks yet. Use /task to create one.\n";
+                }
+                else {
+                    // Show recent tasks (last 5)
+                    const recentTasks = allTasks.slice(-5).reverse();
+                    tasksList += "Recent tasks:\n\n";
+                    recentTasks.forEach(task => {
+                        const duration = task.completedAt && task.startedAt
+                            ? `${task.completedAt.getTime() - task.startedAt.getTime()}ms`
+                            : 'N/A';
+                        tasksList += `[${task.status}] ${task.type}: ${task.description}\n`;
+                        tasksList += `  ID: ${task.id.substring(0, 8)}... | Duration: ${duration}\n\n`;
+                    });
+                }
+                const statusEntry = {
+                    type: "assistant",
+                    content: tasksList,
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, statusEntry]);
+            }
+            catch (error) {
+                const errorEntry = {
+                    type: "assistant",
+                    content: `❌ Failed to get tasks: ${error.message}`,
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, errorEntry]);
+            }
             clearInput();
             return true;
         }

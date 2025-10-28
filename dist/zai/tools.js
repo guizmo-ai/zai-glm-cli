@@ -1,5 +1,6 @@
 import { MCPManager } from "../mcp/client.js";
 import { loadMCPConfig } from "../mcp/config.js";
+import { TaskTool } from "../tools/task-tool.js";
 const BASE_ZAI_TOOLS = [
     {
         type: "function",
@@ -608,6 +609,8 @@ function buildZaiTools() {
     if (process.env.MORPH_API_KEY) {
         tools.splice(3, 0, MORPH_EDIT_TOOL); // Insert after str_replace_editor
     }
+    // Add Task/Agent tool - allows GLM to spawn specialized agents
+    tools.push(TaskTool.getToolDefinition());
     return tools;
 }
 // Export dynamic tools array

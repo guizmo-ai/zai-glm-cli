@@ -73,7 +73,8 @@
     "react": "^18.3.1",
     "ripgrep-node": "^1.0.0",
     "tiktoken": "^1.0.21",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/chokidar": "^2.1.7",
@@ -81,6 +82,7 @@
     "@types/fs-extra": "^11.0.2",
     "@types/node": "^24.9.0",
     "@types/react": "^18.3.3",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.37.0",
     "@typescript-eslint/parser": "^8.37.0",
     "@vitest/coverage-v8": "^3.2.4",

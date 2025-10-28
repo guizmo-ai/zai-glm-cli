@@ -994,6 +994,18 @@ ${summary}
             params: args.params,
           });
 
+        case "launch_agent":
+          // Launch specialized agent for complex tasks
+          const { getTaskTool } = await import("../tools/task-tool.js");
+          const taskTool = getTaskTool();
+          taskTool.setParentAgent(this); // Pass reference to current agent
+
+          return await taskTool.execute({
+            agent_type: args.agent_type,
+            task_description: args.task_description,
+            thoroughness: args.thoroughness,
+          });
+
         default:
           // Check if this is an MCP tool
           if (toolCall.function.name.startsWith("mcp__")) {

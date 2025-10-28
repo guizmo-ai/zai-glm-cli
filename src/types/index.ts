@@ -3,6 +3,7 @@ export interface ToolResult {
   output?: string;
   error?: string;
   data?: any;
+  metadata?: Record<string, any>;
 }
 
 export interface Tool {

@@ -41,8 +41,12 @@ export class ZaiClient {
   private currentModel: string = "glm-4.6"; // Modèle par défaut avec support thinking
   private defaultMaxTokens: number;
   private thinkingEnabled: boolean = false;
+  public readonly apiKey: string;
+  public readonly baseURL: string;
 
   constructor(apiKey: string, model?: string, baseURL?: string) {
+    this.apiKey = apiKey;
+    this.baseURL = baseURL || process.env.ZAI_BASE_URL || "https://api.z.ai/api/coding/paas/v4";
     // OpenAI SDK automatically appends /chat/completions, so baseURL should be the root
     this.client = new OpenAI({
       apiKey,
@@ -85,6 +89,11 @@ export class ZaiClient {
   }
 
   getCurrentModel(): string {
+    return this.currentModel;
+  }
+
+  // Expose current model publicly for agent spawning
+  get model(): string {
     return this.currentModel;
   }
 
