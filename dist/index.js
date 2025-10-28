@@ -270,6 +270,8 @@ program
     .option("-w, --watch", "watch for file changes and auto-reload context")
     .option("--no-color", "disable colored output (useful for CI/CD environments)")
     .option("--debug", "enable debug mode with verbose logging")
+    .option("--token-budget <tokens>", "set maximum token budget for session (e.g., 50000)")
+    .option("--token-warn-at <percentage>", "warn when token usage reaches percentage (default: 80)", "80")
     .action(async (message, options) => {
     // Handle --no-color flag
     if (options.color === false) {
@@ -280,6 +282,18 @@ program
     if (options.debug) {
         process.env.ZAI_DEBUG = "true";
         console.log("🐛 Debug mode enabled");
+    }
+    // Handle --token-budget flag
+    if (options.tokenBudget) {
+        const budget = parseInt(options.tokenBudget, 10);
+        if (isNaN(budget) || budget <= 0) {
+            console.error("❌ Invalid token budget. Must be a positive number.");
+            process.exit(1);
+        }
+        process.env.ZAI_TOKEN_BUDGET = budget.toString();
+        const warnAt = parseInt(options.tokenWarnAt, 10);
+        process.env.ZAI_TOKEN_WARN_AT = warnAt.toString();
+        console.log(`💰 Token budget set to ${budget.toLocaleString()} tokens (warn at ${warnAt}%)`);
     }
     if (options.directory) {
         try {
@@ -602,6 +616,29 @@ program
     const result = sessionManager.exportSessionToMarkdown(name, outputPath);
     if (!result) {
         console.log(`❌ Session not found: ${name}`);
+    }
+});
+// Completion command
+program
+    .command("completion [shell]")
+    .description("Generate shell completion script (bash, zsh, fish)")
+    .action((shell) => {
+    const supportedShells = ["bash", "zsh", "fish"];
+    const detectedShell = shell || process.env.SHELL?.split("/").pop() || "bash";
+    if (!supportedShells.includes(detectedShell)) {
+        console.error(`❌ Unsupported shell: ${detectedShell}`);
+        console.log(`Supported shells: ${supportedShells.join(", ")}`);
+        process.exit(1);
+    }
+    const completionPath = path.join(__dirname, `../completions/zai.${detectedShell}`);
+    try {
+        const completionScript = fs.readFileSync(completionPath, "utf-8");
+        console.log(completionScript);
+        console.error(`\n# To enable completion, run:\n# ${detectedShell === "bash" ? "source <(zai completion bash)" : detectedShell === "zsh" ? "zai completion zsh > ~/.zsh/completions/_zai" : "zai completion fish > ~/.config/fish/completions/zai.fish"}`);
+    }
+    catch (error) {
+        console.error(`❌ Failed to load completion script for ${detectedShell}`);
+        process.exit(1);
     }
 });
 program.parse();

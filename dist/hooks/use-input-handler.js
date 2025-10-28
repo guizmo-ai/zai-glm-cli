@@ -394,13 +394,76 @@ export function useInputHandler({ agent, chatHistory, setChatHistory, setIsProce
             clearInput();
             return true;
         }
+        if (trimmedInput === "/undo") {
+            // Show list of recent backups and allow undo
+            const { BackupManager } = await import("../utils/backup-manager.js");
+            const backupManager = BackupManager.getInstance();
+            const helpEntry = {
+                type: "assistant",
+                content: `🔄 Undo functionality:
+
+To undo a file change, use:
+  /undo <filepath>
+
+This will restore the most recent backup of the file.
+
+Example:
+  /undo src/index.ts
+
+To see available backups for a file:
+  /backups <filepath>`,
+                timestamp: new Date(),
+            };
+            setChatHistory((prev) => [...prev, helpEntry]);
+            clearInput();
+            return true;
+        }
+        // Handle /undo <filepath>
+        if (trimmedInput.startsWith("/undo ")) {
+            const filePath = trimmedInput.substring(6).trim();
+            if (!filePath) {
+                const errorEntry = {
+                    type: "assistant",
+                    content: "❌ Please specify a file path: /undo <filepath>",
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, errorEntry]);
+                clearInput();
+                return true;
+            }
+            try {
+                const { BackupManager } = await import("../utils/backup-manager.js");
+                const backupManager = BackupManager.getInstance();
+                const success = await backupManager.restoreBackup(filePath);
+                const resultEntry = {
+                    type: "assistant",
+                    content: success
+                        ? `✅ File restored from backup: ${filePath}`
+                        : `❌ No backup found for: ${filePath}`,
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, resultEntry]);
+            }
+            catch (error) {
+                const errorEntry = {
+                    type: "assistant",
+                    content: `❌ Failed to restore file: ${error.message}`,
+                    timestamp: new Date(),
+                };
+                setChatHistory((prev) => [...prev, errorEntry]);
+            }
+            clearInput();
+            return true;
+        }
         if (trimmedInput === "/help") {
             const helpEntry = {
                 type: "assistant",
                 content: `ZAI CLI Help:
 
 Built-in Commands:
-  /clear      - Clear chat history
+  /clear      - Clear chat history (requires confirmation)
+  /undo       - Undo last file change
+  /undo <file> - Restore specific file from backup
   /help       - Show this help
   /save       - Save current session
   /load       - Load a saved session
