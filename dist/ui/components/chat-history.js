@@ -152,6 +152,21 @@ export function ChatHistory({ entries, isConfirmationActive = false, }) {
     const filteredEntries = isConfirmationActive
         ? entries.filter((entry) => !(entry.type === "tool_call" && entry.content === "Executing..."))
         : entries;
-    return (React.createElement(Box, { flexDirection: "column" }, filteredEntries.slice(-20).map((entry, index) => (React.createElement(MemoizedChatEntry, { key: `${entry.timestamp.getTime()}-${index}`, entry: entry, index: index })))));
+    // Show only the most recent 30 entries to prevent pagination issues
+    // This keeps the terminal from breaking when scrolling long threads
+    const MAX_VISIBLE_ENTRIES = 30;
+    const recentEntries = filteredEntries.slice(-MAX_VISIBLE_ENTRIES);
+    // Show indicator if there are more entries
+    const hasMoreEntries = filteredEntries.length > MAX_VISIBLE_ENTRIES;
+    const hiddenCount = filteredEntries.length - MAX_VISIBLE_ENTRIES;
+    return (React.createElement(Box, { flexDirection: "column" },
+        hasMoreEntries && (React.createElement(Box, { marginBottom: 1 },
+            React.createElement(Text, { color: "gray", dimColor: true },
+                "... ",
+                hiddenCount,
+                " earlier ",
+                hiddenCount === 1 ? "message" : "messages",
+                " hidden"))),
+        recentEntries.map((entry, index) => (React.createElement(MemoizedChatEntry, { key: `${entry.timestamp.getTime()}-${index}`, entry: entry, index: index })))));
 }
 //# sourceMappingURL=chat-history.js.map

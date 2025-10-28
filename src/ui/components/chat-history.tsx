@@ -219,9 +219,25 @@ export function ChatHistory({
       )
     : entries;
 
+  // Show only the most recent 30 entries to prevent pagination issues
+  // This keeps the terminal from breaking when scrolling long threads
+  const MAX_VISIBLE_ENTRIES = 30;
+  const recentEntries = filteredEntries.slice(-MAX_VISIBLE_ENTRIES);
+  
+  // Show indicator if there are more entries
+  const hasMoreEntries = filteredEntries.length > MAX_VISIBLE_ENTRIES;
+  const hiddenCount = filteredEntries.length - MAX_VISIBLE_ENTRIES;
+
   return (
     <Box flexDirection="column">
-      {filteredEntries.slice(-20).map((entry, index) => (
+      {hasMoreEntries && (
+        <Box marginBottom={1}>
+          <Text color="gray" dimColor>
+            ... {hiddenCount} earlier {hiddenCount === 1 ? "message" : "messages"} hidden
+          </Text>
+        </Box>
+      )}
+      {recentEntries.map((entry, index) => (
         <MemoizedChatEntry
           key={`${entry.timestamp.getTime()}-${index}`}
           entry={entry}

@@ -32,6 +32,7 @@ export function LoadingSpinner({
 }: LoadingSpinnerProps) {
   const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [loadingTextIndex, setLoadingTextIndex] = useState(0);
+  const [dots, setDots] = useState(".");
 
   useEffect(() => {
     if (!isActive) return;
@@ -41,6 +42,23 @@ export function LoadingSpinner({
     const interval = setInterval(() => {
       setSpinnerFrame((prev) => (prev + 1) % spinnerFrames.length);
     }, 500);
+
+    return () => clearInterval(interval);
+  }, [isActive]);
+
+  // Animated dots for persistent visual feedback
+  useEffect(() => {
+    if (!isActive) {
+      setDots(".");
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === "...") return ".";
+        return prev + ".";
+      });
+    }, 400);
 
     return () => clearInterval(interval);
   }, [isActive]);
@@ -64,11 +82,11 @@ export function LoadingSpinner({
 
   return (
     <Box marginTop={1}>
-      <Text color="cyan">
-        {spinnerFrames[spinnerFrame]} {loadingTexts[loadingTextIndex]}{" "}
+      <Text color="cyan" bold>
+        {spinnerFrames[spinnerFrame]} {loadingTexts[loadingTextIndex]}{dots}
       </Text>
       <Text color="gray">
-        ({processingTime}s · ↑ {formatTokenCount(tokenCount)} tokens · esc to
+        {" "}({processingTime}s · ↑ {formatTokenCount(tokenCount)} tokens · esc to
         interrupt)
       </Text>
     </Box>
