@@ -1,6 +1,6 @@
 {
   "name": "@guizmo-ai/zai-cli",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "An open-source AI agent that brings the power of Z.ai GLM models directly into your terminal.",
   "type": "module",
   "main": "dist/index.js",

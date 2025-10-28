@@ -894,6 +894,32 @@ ${summary}
     getChatHistory() {
         return [...this.chatHistory];
     }
+    /**
+     * Add agent activity notification to chat history
+     * Used by sub-agents to show their status in the parent agent's UI
+     */
+    addAgentActivity(agentType, agentName, status, taskId, duration, error) {
+        const statusMessages = {
+            starting: `Launching ${agentName} agent...`,
+            running: `${agentName} is working on the task...`,
+            completed: `${agentName} completed the task${duration ? ` in ${(duration / 1000).toFixed(1)}s` : ''}`,
+            failed: `${agentName} failed to complete the task`
+        };
+        const entry = {
+            type: "agent_activity",
+            content: statusMessages[status],
+            timestamp: new Date(),
+            agentInfo: {
+                type: agentType,
+                name: agentName,
+                status,
+                taskId,
+                duration,
+                error
+            }
+        };
+        this.chatHistory.push(entry);
+    }
     getCurrentDirectory() {
         return this.bash.getCurrentDirectory();
     }

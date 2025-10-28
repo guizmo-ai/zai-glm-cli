@@ -34,23 +34,34 @@ export class TaskTool {
                 };
             }
             const capability = AGENT_CAPABILITIES[agent_type];
+            // Notify parent agent that we're starting the sub-agent
+            this.parentAgent.addAgentActivity(agent_type, capability.name, 'starting');
             // Create a new isolated agent for this task
             const subAgent = new ZaiAgent(this.parentAgent.getClient().apiKey, this.parentAgent.getClient().baseURL, this.parentAgent.getClient().model, this.getThoroughnessRounds(thoroughness));
             // Create task
             const orchestrator = getTaskOrchestrator();
             const task = orchestrator.createTask(agent_type, task_description, task_description);
+            // Notify parent that agent is now running
+            this.parentAgent.addAgentActivity(agent_type, capability.name, 'running', task.id);
             // Execute task with sub-agent
+            const startTime = Date.now();
             const result = await orchestrator.executeTask(task.id, subAgent, {
                 type: agent_type,
                 customSystemPrompt: this.buildSystemPrompt(capability, thoroughness),
             });
+            const duration = Date.now() - startTime;
             if (!result.success) {
+                // Notify parent that agent failed
+                const errorMessage = result.metadata?.error || 'Task execution failed';
+                this.parentAgent.addAgentActivity(agent_type, capability.name, 'failed', task.id, duration, errorMessage);
                 return {
                     success: false,
-                    error: result.metadata?.error || 'Task execution failed',
+                    error: errorMessage,
                     output: result.output,
                 };
             }
+            // Notify parent that agent completed successfully
+            this.parentAgent.addAgentActivity(agent_type, capability.name, 'completed', task.id, duration);
             // Return summarized result (not full context)
             const summary = this.summarizeResult(result.output, task_description, capability.name);
             return {
@@ -59,16 +70,24 @@ export class TaskTool {
                 metadata: {
                     agent_type,
                     task_id: task.id,
-                    duration: result.metadata?.duration,
+                    duration,
                     tools_used: result.metadata?.toolsUsed,
                     thoroughness,
                 },
             };
         }
         catch (error) {
+            // Notify parent that agent failed with error
+            const errorMessage = `Task tool error: ${error.message}`;
+            if (this.parentAgent) {
+                const capability = AGENT_CAPABILITIES[params.agent_type];
+                if (capability) {
+                    this.parentAgent.addAgentActivity(params.agent_type, capability.name, 'failed', undefined, undefined, errorMessage);
+                }
+            }
             return {
                 success: false,
-                error: `Task tool error: ${error.message}`,
+                error: errorMessage,
             };
         }
     }

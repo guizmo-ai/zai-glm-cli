@@ -46,21 +46,21 @@ export default function ThinkingPanel({
       marginBottom={1}
     >
       <Box>
-        <Text color="magenta" bold>
+        <Text color="magenta" bold={true}>
           💭 Thinking ({modelName})
         </Text>
-        <Text color="gray" dimColor>
+        <Text color="gray" dimColor={true}>
           {" "}
           [Press T to toggle]
         </Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray" italic>
+        <Text color="gray" italic={true}>
           {thinkingContent}
         </Text>
         {isStreaming && (
           <Box marginTop={1}>
-            <Text color="cyan" dimColor>
+            <Text color="cyan" dimColor={true}>
               ▸ thinking
             </Text>
             <Text color="cyan">{dots}</Text>

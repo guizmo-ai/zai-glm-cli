@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { ChatEntry } from "../../agent/zai-agent.js";
 import { DiffRenderer } from "./diff-renderer.js";
@@ -8,6 +8,118 @@ interface ChatHistoryProps {
   entries: ChatEntry[];
   isConfirmationActive?: boolean;
 }
+
+// Blinking icon component for agent tools
+const BlinkingAgentIcon = ({ isExecuting, isSuccess }: { isExecuting: boolean; isSuccess?: boolean }) => {
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    if (isExecuting) {
+      const interval = setInterval(() => {
+        setIsVisible((prev) => !prev);
+      }, 500);
+      return () => clearInterval(interval);
+    } else {
+      setIsVisible(true);
+    }
+  }, [isExecuting]);
+
+  if (isExecuting) {
+    return (
+      <Text color="cyan">
+        {isVisible ? "⚙️ " : "   "}
+      </Text>
+    );
+  } else if (isSuccess === true) {
+    return <Text color="green">✅ </Text>;
+  } else if (isSuccess === false) {
+    return <Text color="red">❌ </Text>;
+  }
+
+  return <Text color="magenta">⏺</Text>;
+};
+
+// Agent Activity Indicator with blinking animation
+const AgentActivityIndicator = ({ entry }: { entry: ChatEntry }) => {
+  const [isVisible, setIsVisible] = useState(true);
+
+  // Blinking animation for starting/running states
+  useEffect(() => {
+    if (entry.agentInfo?.status === "starting" || entry.agentInfo?.status === "running") {
+      const interval = setInterval(() => {
+        setIsVisible((prev) => !prev);
+      }, 500); // Blink every 500ms
+
+      return () => clearInterval(interval);
+    } else {
+      setIsVisible(true); // Always visible for completed/failed
+    }
+  }, [entry.agentInfo?.status]);
+
+  const getActivityIcon = (status: string) => {
+    switch (status) {
+      case "starting":
+        return "🚀";
+      case "running":
+        return "⚙️";
+      case "completed":
+        return "✅";
+      case "failed":
+        return "❌";
+      default:
+        return "🤖";
+    }
+  };
+
+  const getActivityColor = (status: string) => {
+    switch (status) {
+      case "starting":
+        return "cyan";
+      case "running":
+        return "blue";
+      case "completed":
+        return "green";
+      case "failed":
+        return "red";
+      default:
+        return "white";
+    }
+  };
+
+  const activityIcon = entry.agentInfo ? getActivityIcon(entry.agentInfo.status) : "🤖";
+  const activityColor = entry.agentInfo ? getActivityColor(entry.agentInfo.status) : "white";
+  const shouldBlink = entry.agentInfo?.status === "starting" || entry.agentInfo?.status === "running";
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Box>
+        {shouldBlink && !isVisible ? (
+          <Text color={activityColor} bold={true}>
+            {"   "} {entry.content}
+          </Text>
+        ) : (
+          <Text color={activityColor} bold={true}>
+            {activityIcon} {entry.content}
+          </Text>
+        )}
+      </Box>
+      {entry.agentInfo?.taskId && entry.agentInfo.status !== "starting" && (
+        <Box marginLeft={2}>
+          <Text color="gray" dimColor={true}>
+            ⎿ Task ID: {entry.agentInfo.taskId}
+          </Text>
+        </Box>
+      )}
+      {entry.agentInfo?.status === "failed" && (
+        <Box marginLeft={2}>
+          <Text color="red">
+            ⎿ Error: {entry.agentInfo.error || "Agent execution failed"}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
 
 // Memoized ChatEntry component to prevent unnecessary re-renders
 const MemoizedChatEntry = React.memo(
@@ -78,6 +190,9 @@ const MemoizedChatEntry = React.memo(
           </Box>
         );
 
+      case "agent_activity":
+        return <AgentActivityIndicator key={index} entry={entry} />;
+
       case "tool_call":
       case "tool_result":
         const getToolActionName = (toolName: string) => {
@@ -106,6 +221,8 @@ const MemoizedChatEntry = React.memo(
               return "Created Todo";
             case "update_todo_list":
               return "Updated Todo";
+            case "launch_agent":
+              return "Agent";
             default:
               return "Tool";
           }
@@ -113,6 +230,21 @@ const MemoizedChatEntry = React.memo(
 
         const toolName = entry.toolCall?.function?.name || "unknown";
         const actionName = getToolActionName(toolName);
+
+        // For launch_agent, extract agent type from arguments
+        const getAgentInfo = (toolCall: any) => {
+          if (toolCall?.function?.name === "launch_agent" && toolCall?.function?.arguments) {
+            try {
+              const args = JSON.parse(toolCall.function.arguments);
+              return args.agent_type || "";
+            } catch {
+              return "";
+            }
+          }
+          return "";
+        };
+
+        const agentType = getAgentInfo(entry.toolCall);
 
         const getFilePath = (toolCall: any) => {
           if (toolCall?.function?.arguments) {
@@ -165,18 +297,42 @@ const MemoizedChatEntry = React.memo(
           entry.toolResult?.success &&
           !shouldShowDiff;
 
+        // Special handling for launch_agent tool
+        const isAgentTool = toolName === "launch_agent";
+        const agentSuccess = isAgentTool && !isExecuting ? entry.toolResult?.success : undefined;
+
         return (
           <Box key={index} flexDirection="column" marginTop={1}>
             <Box>
-              <Text color="magenta">⏺</Text>
-              <Text color="white">
-                {" "}
-                {filePath ? `${actionName}(${filePath})` : actionName}
-              </Text>
+              {isAgentTool ? (
+                <>
+                  <BlinkingAgentIcon isExecuting={isExecuting} isSuccess={agentSuccess} />
+                  <Text color="white">
+                    {" "}
+                    {agentType
+                      ? `${actionName}(${agentType})`
+                      : filePath
+                      ? `${actionName}(${filePath})`
+                      : actionName}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text color="magenta">⏺</Text>
+                  <Text color="white">
+                    {" "}
+                    {agentType
+                      ? `${actionName}(${agentType})`
+                      : filePath
+                      ? `${actionName}(${filePath})`
+                      : actionName}
+                  </Text>
+                </>
+              )}
             </Box>
             <Box marginLeft={2} flexDirection="column">
               {isExecuting ? (
-                <Text color="cyan">⎿ Executing...</Text>
+                <Text color="cyan">⎿ {isAgentTool ? "Agent working..." : "Executing..."}</Text>
               ) : shouldShowFileContent ? (
                 <Box flexDirection="column">
                   <Text color="gray">⎿ File contents:</Text>
@@ -187,6 +343,10 @@ const MemoizedChatEntry = React.memo(
               ) : shouldShowDiff ? (
                 // For diff results, show only the summary line, not the raw content
                 <Text color="gray">⎿ {entry.content.split("\n")[0]}</Text>
+              ) : isAgentTool && entry.toolResult?.success === false ? (
+                <Text color="red">⎿ {entry.toolResult?.error || "Agent execution failed"}</Text>
+              ) : isAgentTool && entry.toolResult?.success === true ? (
+                <Text color="green">⎿ {formatToolContent(entry.content, toolName)}</Text>
               ) : (
                 <Text color="gray">⎿ {formatToolContent(entry.content, toolName)}</Text>
               )}

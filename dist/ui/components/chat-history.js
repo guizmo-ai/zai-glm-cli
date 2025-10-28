@@ -1,7 +1,95 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { DiffRenderer } from "./diff-renderer.js";
 import { MarkdownRenderer } from "../utils/markdown-renderer.js";
+// Blinking icon component for agent tools
+const BlinkingAgentIcon = ({ isExecuting, isSuccess }) => {
+    const [isVisible, setIsVisible] = useState(true);
+    useEffect(() => {
+        if (isExecuting) {
+            const interval = setInterval(() => {
+                setIsVisible((prev) => !prev);
+            }, 500);
+            return () => clearInterval(interval);
+        }
+        else {
+            setIsVisible(true);
+        }
+    }, [isExecuting]);
+    if (isExecuting) {
+        return (React.createElement(Text, { color: "cyan" }, isVisible ? "⚙️ " : "   "));
+    }
+    else if (isSuccess === true) {
+        return React.createElement(Text, { color: "green" }, "\u2705 ");
+    }
+    else if (isSuccess === false) {
+        return React.createElement(Text, { color: "red" }, "\u274C ");
+    }
+    return React.createElement(Text, { color: "magenta" }, "\u23FA");
+};
+// Agent Activity Indicator with blinking animation
+const AgentActivityIndicator = ({ entry }) => {
+    const [isVisible, setIsVisible] = useState(true);
+    // Blinking animation for starting/running states
+    useEffect(() => {
+        if (entry.agentInfo?.status === "starting" || entry.agentInfo?.status === "running") {
+            const interval = setInterval(() => {
+                setIsVisible((prev) => !prev);
+            }, 500); // Blink every 500ms
+            return () => clearInterval(interval);
+        }
+        else {
+            setIsVisible(true); // Always visible for completed/failed
+        }
+    }, [entry.agentInfo?.status]);
+    const getActivityIcon = (status) => {
+        switch (status) {
+            case "starting":
+                return "🚀";
+            case "running":
+                return "⚙️";
+            case "completed":
+                return "✅";
+            case "failed":
+                return "❌";
+            default:
+                return "🤖";
+        }
+    };
+    const getActivityColor = (status) => {
+        switch (status) {
+            case "starting":
+                return "cyan";
+            case "running":
+                return "blue";
+            case "completed":
+                return "green";
+            case "failed":
+                return "red";
+            default:
+                return "white";
+        }
+    };
+    const activityIcon = entry.agentInfo ? getActivityIcon(entry.agentInfo.status) : "🤖";
+    const activityColor = entry.agentInfo ? getActivityColor(entry.agentInfo.status) : "white";
+    const shouldBlink = entry.agentInfo?.status === "starting" || entry.agentInfo?.status === "running";
+    return (React.createElement(Box, { flexDirection: "column", marginTop: 1 },
+        React.createElement(Box, null, shouldBlink && !isVisible ? (React.createElement(Text, { color: activityColor, bold: true },
+            "   ",
+            " ",
+            entry.content)) : (React.createElement(Text, { color: activityColor, bold: true },
+            activityIcon,
+            " ",
+            entry.content))),
+        entry.agentInfo?.taskId && entry.agentInfo.status !== "starting" && (React.createElement(Box, { marginLeft: 2 },
+            React.createElement(Text, { color: "gray", dimColor: true },
+                "\u23BF Task ID: ",
+                entry.agentInfo.taskId))),
+        entry.agentInfo?.status === "failed" && (React.createElement(Box, { marginLeft: 2 },
+            React.createElement(Text, { color: "red" },
+                "\u23BF Error: ",
+                entry.agentInfo.error || "Agent execution failed")))));
+};
 // Memoized ChatEntry component to prevent unnecessary re-renders
 const MemoizedChatEntry = React.memo(({ entry, index }) => {
     const renderDiff = (diffContent, filename) => {
@@ -45,6 +133,8 @@ const MemoizedChatEntry = React.memo(({ entry, index }) => {
                         // If no tool calls, render as markdown
                         React.createElement(MarkdownRenderer, { content: entry.content.trim() })),
                         entry.isStreaming && React.createElement(Text, { color: "cyan" }, "\u2588")))));
+        case "agent_activity":
+            return React.createElement(AgentActivityIndicator, { key: index, entry: entry });
         case "tool_call":
         case "tool_result":
             const getToolActionName = (toolName) => {
@@ -72,12 +162,28 @@ const MemoizedChatEntry = React.memo(({ entry, index }) => {
                         return "Created Todo";
                     case "update_todo_list":
                         return "Updated Todo";
+                    case "launch_agent":
+                        return "Agent";
                     default:
                         return "Tool";
                 }
             };
             const toolName = entry.toolCall?.function?.name || "unknown";
             const actionName = getToolActionName(toolName);
+            // For launch_agent, extract agent type from arguments
+            const getAgentInfo = (toolCall) => {
+                if (toolCall?.function?.name === "launch_agent" && toolCall?.function?.arguments) {
+                    try {
+                        const args = JSON.parse(toolCall.function.arguments);
+                        return args.agent_type || "";
+                    }
+                    catch {
+                        return "";
+                    }
+                }
+                return "";
+            };
+            const agentType = getAgentInfo(entry.toolCall);
             const getFilePath = (toolCall) => {
                 if (toolCall?.function?.arguments) {
                     try {
@@ -126,19 +232,40 @@ const MemoizedChatEntry = React.memo(({ entry, index }) => {
                 entry.toolCall?.function?.name === "create_file") &&
                 entry.toolResult?.success &&
                 !shouldShowDiff;
+            // Special handling for launch_agent tool
+            const isAgentTool = toolName === "launch_agent";
+            const agentSuccess = isAgentTool && !isExecuting ? entry.toolResult?.success : undefined;
             return (React.createElement(Box, { key: index, flexDirection: "column", marginTop: 1 },
-                React.createElement(Box, null,
+                React.createElement(Box, null, isAgentTool ? (React.createElement(React.Fragment, null,
+                    React.createElement(BlinkingAgentIcon, { isExecuting: isExecuting, isSuccess: agentSuccess }),
+                    React.createElement(Text, { color: "white" },
+                        " ",
+                        agentType
+                            ? `${actionName}(${agentType})`
+                            : filePath
+                                ? `${actionName}(${filePath})`
+                                : actionName))) : (React.createElement(React.Fragment, null,
                     React.createElement(Text, { color: "magenta" }, "\u23FA"),
                     React.createElement(Text, { color: "white" },
                         " ",
-                        filePath ? `${actionName}(${filePath})` : actionName)),
-                React.createElement(Box, { marginLeft: 2, flexDirection: "column" }, isExecuting ? (React.createElement(Text, { color: "cyan" }, "\u23BF Executing...")) : shouldShowFileContent ? (React.createElement(Box, { flexDirection: "column" },
+                        agentType
+                            ? `${actionName}(${agentType})`
+                            : filePath
+                                ? `${actionName}(${filePath})`
+                                : actionName)))),
+                React.createElement(Box, { marginLeft: 2, flexDirection: "column" }, isExecuting ? (React.createElement(Text, { color: "cyan" },
+                    "\u23BF ",
+                    isAgentTool ? "Agent working..." : "Executing...")) : shouldShowFileContent ? (React.createElement(Box, { flexDirection: "column" },
                     React.createElement(Text, { color: "gray" }, "\u23BF File contents:"),
                     React.createElement(Box, { marginLeft: 2, flexDirection: "column" }, renderFileContent(entry.content)))) : shouldShowDiff ? (
                 // For diff results, show only the summary line, not the raw content
                 React.createElement(Text, { color: "gray" },
                     "\u23BF ",
-                    entry.content.split("\n")[0])) : (React.createElement(Text, { color: "gray" },
+                    entry.content.split("\n")[0])) : isAgentTool && entry.toolResult?.success === false ? (React.createElement(Text, { color: "red" },
+                    "\u23BF ",
+                    entry.toolResult?.error || "Agent execution failed")) : isAgentTool && entry.toolResult?.success === true ? (React.createElement(Text, { color: "green" },
+                    "\u23BF ",
+                    formatToolContent(entry.content, toolName))) : (React.createElement(Text, { color: "gray" },
                     "\u23BF ",
                     formatToolContent(entry.content, toolName)))),
                 shouldShowDiff && !isExecuting && (React.createElement(Box, { marginLeft: 4, flexDirection: "column" }, renderDiff(entry.content, filePath)))));

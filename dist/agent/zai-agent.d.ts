@@ -2,7 +2,7 @@ import { ZaiClient, ZaiToolCall } from "../zai/client.js";
 import { ToolResult } from "../types/index.js";
 import { EventEmitter } from "events";
 export interface ChatEntry {
-    type: "user" | "assistant" | "tool_result" | "tool_call";
+    type: "user" | "assistant" | "tool_result" | "tool_call" | "agent_activity";
     content: string;
     timestamp: Date;
     toolCalls?: ZaiToolCall[];
@@ -13,6 +13,14 @@ export interface ChatEntry {
         error?: string;
     };
     isStreaming?: boolean;
+    agentInfo?: {
+        type: string;
+        name: string;
+        status: "starting" | "running" | "completed" | "failed";
+        taskId?: string;
+        duration?: number;
+        error?: string;
+    };
 }
 export interface StreamingChunk {
     type: "content" | "tool_calls" | "tool_result" | "done" | "token_count" | "thinking";
@@ -64,6 +72,11 @@ export declare class ZaiAgent extends EventEmitter {
     private executeTool;
     private executeMCPTool;
     getChatHistory(): ChatEntry[];
+    /**
+     * Add agent activity notification to chat history
+     * Used by sub-agents to show their status in the parent agent's UI
+     */
+    addAgentActivity(agentType: string, agentName: string, status: "starting" | "running" | "completed" | "failed", taskId?: string, duration?: number, error?: string): void;
     getCurrentDirectory(): string;
     executeBashCommand(command: string): Promise<ToolResult>;
     getCurrentModel(): string;

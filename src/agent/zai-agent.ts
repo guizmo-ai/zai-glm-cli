@@ -28,13 +28,21 @@ import { StreamProcessor } from "./stream-processor.js";
 import { createChatStateMachine, type ChatState } from "./chat-state-machine.js";
 
 export interface ChatEntry {
-  type: "user" | "assistant" | "tool_result" | "tool_call";
+  type: "user" | "assistant" | "tool_result" | "tool_call" | "agent_activity";
   content: string;
   timestamp: Date;
   toolCalls?: ZaiToolCall[];
   toolCall?: ZaiToolCall;
   toolResult?: { success: boolean; output?: string; error?: string };
   isStreaming?: boolean;
+  agentInfo?: {
+    type: string;
+    name: string;
+    status: "starting" | "running" | "completed" | "failed";
+    taskId?: string;
+    duration?: number;
+    error?: string;
+  };
 }
 
 export interface StreamingChunk {
@@ -1076,6 +1084,35 @@ ${summary}
 
   getChatHistory(): ChatEntry[] {
     return [...this.chatHistory];
+  }
+
+  /**
+   * Add agent activity notification to chat history
+   * Used by sub-agents to show their status in the parent agent's UI
+   */
+  addAgentActivity(agentType: string, agentName: string, status: "starting" | "running" | "completed" | "failed", taskId?: string, duration?: number, error?: string): void {
+    const statusMessages = {
+      starting: `Launching ${agentName} agent...`,
+      running: `${agentName} is working on the task...`,
+      completed: `${agentName} completed the task${duration ? ` in ${(duration / 1000).toFixed(1)}s` : ''}`,
+      failed: `${agentName} failed to complete the task`
+    };
+
+    const entry: ChatEntry = {
+      type: "agent_activity",
+      content: statusMessages[status],
+      timestamp: new Date(),
+      agentInfo: {
+        type: agentType,
+        name: agentName,
+        status,
+        taskId,
+        duration,
+        error
+      }
+    };
+
+    this.chatHistory.push(entry);
   }
 
   getCurrentDirectory(): string {

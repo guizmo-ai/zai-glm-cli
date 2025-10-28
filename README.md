@@ -10,14 +10,25 @@ Forked from [superagent-ai/grok-cli](https://github.com/superagent-ai/grok-cli) 
 
 ![ZAI CLI Screenshot](./assets/screenshot.png)
 
-## ✨ New in v0.2.0
+## ✨ What's New in v0.3
 
-Powerful new features to enhance your workflow:
+### 🤖 Autonomous Agent System
+ZAI can now spawn specialized agents to handle complex tasks automatically:
 
-- **📜 Persistent Command History** - Your command history is saved across sessions in `~/.zai/history.json`, so you never lose your workflow
-- **🔍 Ctrl+R Fuzzy Search** - Instantly find and reuse previous commands with reverse search through your history
-- **👁️ Interactive Diff Viewer** - Preview all file changes before applying them, with options to accept, reject, or view full diffs
-- **💾 Automatic Backups** - Files are automatically backed up before editing to `~/.zai/backups/`, ensuring you can always recover previous versions
+- **10 Specialized Agents** - Code review, testing, documentation, debugging, security, performance, and more
+- **Autonomous Execution** - GLM decides when to use agents based on your request
+- **Visual Feedback** - Animated indicators show agent status (⚙️ working → ✅ success / ❌ error)
+- **Isolated Context** - Agents work independently without polluting your main conversation
+
+**Example:** Ask "review my auth module" and GLM automatically launches the code-reviewer agent!
+
+### 🎯 Enhanced UX Features
+- **Shell Auto-completion** - Tab completion for bash, zsh, and fish
+- **Token Budget Management** - Set limits with `--token-budget` to control API costs
+- **Undo Command** - Restore previous file versions with `/undo <filepath>`
+- **Better Error Messages** - Context-aware API error explanations
+- **No-Color Mode** - `--no-color` flag for CI/CD environments
+- **Debug Mode** - `--debug` for verbose logging
 
 ### Keyboard Shortcuts
 
@@ -212,6 +223,28 @@ When enabled:
 
 ## 📊 Advanced Features
 
+### 🤖 Autonomous Agents
+GLM automatically spawns specialized agents when needed:
+
+**Available Agents:**
+- **code-reviewer** - Code quality, bugs, security, best practices
+- **test-writer** - Unit and integration tests
+- **documentation** - README, API docs, technical documentation
+- **refactoring** - Code structure and maintainability improvements
+- **debugging** - Systematic bug diagnosis and fixes
+- **security-audit** - Security vulnerability analysis
+- **performance-optimizer** - Performance analysis and optimization
+- **explore** - Quick codebase exploration and understanding
+- **plan** - Detailed implementation planning
+
+**Manual Control:**
+```bash
+# In chat mode
+/agents                                    # List all available agents
+/task code-reviewer "review auth module"   # Launch specific agent
+/tasks                                     # View agent execution history
+```
+
 ### 📜 Command History & Search
 Your command history is automatically saved across sessions:
 ```bash
@@ -220,54 +253,41 @@ Your command history is automatically saved across sessions:
 # Press Ctrl+R for fuzzy search through history
 ```
 
-**Pro tip:** The history search supports fuzzy matching, so you can quickly find commands even if you don't remember the exact wording.
-
 ### 👁️ Interactive Diff Viewer
-Preview all file changes before they're applied:
+Preview all file changes before they're applied with side-by-side diff view and options to accept, reject, or view full diff.
+
+### 💾 Automatic Backups & Undo
+Every file edit is automatically backed up to `~/.zai/backups/`:
 ```bash
-# When AI suggests file changes, you'll see:
-# - Side-by-side diff view
-# - Summary of changes
-# - Options to accept (a), reject (r), or view full diff (d)
+/undo path/to/file.ts    # Restore previous version
 ```
 
-This ensures you maintain full control over what changes are made to your codebase.
-
-### 💾 Automatic Backups
-Every file edit is automatically backed up:
+### 💰 Token Budget Management
+Control API costs with configurable limits:
 ```bash
-# Backups stored in ~/.zai/backups/
-# Organized by timestamp
-# Easy recovery if something goes wrong
+zai --token-budget 50000              # Set max tokens
+zai --token-warn-at 80                # Warn at 80% usage
 ```
 
-### Session Persistence
-Save and restore conversations:
+### 🎨 Shell Auto-completion
+Enable tab completion for your shell:
 ```bash
-# Sessions auto-save to ~/.zai/sessions/
-# Restore on restart with full context
+# Generate completion script
+zai completion bash > ~/.zai-completion.sh
+source ~/.zai-completion.sh
+
+# Or for zsh
+zai completion zsh > ~/.zai-completion.zsh
+
+# Or for fish
+zai completion fish > ~/.config/fish/completions/zai.fish
 ```
 
-### Batch Editing
-Apply changes across multiple files in one operation:
-```bash
-zai --prompt "rename function foo to bar in all .ts files"
-```
-
-### File Watching
-Real-time detection when files change outside ZAI:
-```bash
-# Automatic notification when watched files are modified
-# Prevents conflicts and lost work
-```
-
-### Thinking Mode
-Visualize AI reasoning (GLM extended thinking):
-```bash
-# See reasoning steps in real-time
-# Understand decision-making process
-# Available with GLM-4.6
-```
+### 🔄 Other Features
+- **Batch Editing** - Apply changes across multiple files
+- **File Watching** - Real-time detection of external file changes
+- **Session Persistence** - Auto-save conversations to `~/.zai/sessions/`
+- **Thinking Mode** - Visualize AI reasoning with GLM-4.6
 
 ## 🛠️ Development
 
@@ -294,22 +314,37 @@ npm run typecheck
 
 ## 📋 Command Reference
 
+### CLI Options
 ```bash
-zai [options]
+zai [options] [message...]
 
 Options:
-  -V, --version                 Version number
-  -d, --directory <dir>         Working directory
-  -k, --api-key <key>           Z.ai API key
-  -u, --base-url <url>          API base URL
-  -m, --model <model>           AI model (glm-4.6, glm-4.5, glm-4.5-air)
-  -p, --prompt <prompt>         Headless mode - process and exit
-  --max-tool-rounds <rounds>    Max tool executions (default: 400)
-  -h, --help                    Show help
+  -V, --version                     Version number
+  -d, --directory <dir>             Working directory
+  -k, --api-key <key>               Z.ai API key
+  -u, --base-url <url>              API base URL
+  -m, --model <model>               AI model (glm-4.6, glm-4.5, glm-4.5-air)
+  -p, --prompt <prompt>             Headless mode - process and exit
+  --max-tool-rounds <rounds>        Max tool executions (default: 400)
+  --no-color                        Disable colored output (for CI/CD)
+  --debug                           Enable debug mode with verbose logging
+  --token-budget <tokens>           Set maximum token budget (e.g., 50000)
+  --token-warn-at <percentage>      Warn at percentage (default: 80)
+  -h, --help                        Show help
 
 Commands:
-  config [options]              Manage settings
-  mcp <action> [options]        Manage MCP servers
+  config [options]                  Manage settings
+  mcp <action> [options]            Manage MCP servers
+  completion [shell]                Generate shell completion script
+```
+
+### In-Chat Commands
+```bash
+/clear          # Clear chat history (with confirmation)
+/undo <file>    # Restore previous version of file
+/agents         # List all available specialized agents
+/task <type> <description>    # Manually launch an agent
+/tasks          # View agent execution history
 ```
 
 ## 🔄 Migration from grok-cli
